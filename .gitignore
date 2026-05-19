@@ -28,3 +28,7 @@ rootfs/busybox/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Claude Code 本地指令（個人設定，不入版控）
+.claude/
+CLAUDE.md
