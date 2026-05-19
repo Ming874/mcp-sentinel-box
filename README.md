@@ -86,9 +86,9 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 
 | Phase | Milestone | Core Technologies | Status |
 | :--- | :--- | :--- | :--- |
-| **Phase 1** | Container Primitives | C/Rust, Linux Namespaces | Completed |
-| **Phase 2** | Security Sentinel | Seccomp UserNotif, Rust | In Progress |
-| **Phase 3** | Telemetry & Database | eBPF, SQLite WAL | In Progress |
+| **Phase 1** | Container Primitives | C, Linux Namespaces, pivot_root, OverlayFS, Cgroup v2, libcap | Completed |
+| **Phase 2** | Security Sentinel | Rust, Seccomp UserNotif, SCM_RIGHTS fd passing | Completed |
+| **Phase 3** | Telemetry & Database | Rust, cgroup v2 sampling, SQLite WAL audit | Completed (eBPF probe = scaffolded) |
 | **Phase 4** | MCP Integration | Async SDK, Python | Planned |
 | **Phase 5** | Management UI | React, Tailwind | Planned |
 
@@ -96,19 +96,49 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 
 ## 8. Getting Started
 
-### Prerequisites
+### Prerequisites (Ubuntu 22.04+ / Linux 5.15+)
 ```bash
-# Install dependencies (Ubuntu/Debian)
-sudo apt install libseccomp-dev build-essential python3-pip
+sudo apt update
+sudo apt install -y build-essential libseccomp-dev libcap-dev libelf-dev \
+                    clang busybox-static curl pkg-config
+# Rust toolchain
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Build & Run
+### Build
 ```bash
-# Build the isolation engine
-make build
+# 編譯 C 隔離引擎 + Rust 安全哨兵
+make all
 
-# Run a Python script in the sandbox
-./sentinelbox --profile strict --code "print('hello world')"
+# 建立最小 busybox rootfs (沙盒內檔案系統的 lowerdir)
+make rootfs
+```
+
+### Run
+```bash
+./core/build/sentinelbox \
+    --profile=strict \
+    --rootfs=./rootfs/busybox \
+    --monitor=./monitor/target/release/sentinelbox-monitor \
+    -- /bin/sh -c "echo hello from sandbox"
+```
+
+### Try the Semantic Feedback Loop
+```bash
+# 嘗試在 strict profile 內建立 socket → monitor 攔截並印出語意拒絕訊息
+./core/build/sentinelbox \
+    --profile=strict --rootfs=./rootfs/busybox -- \
+    /bin/sh -c "echo GET / | nc -w 1 example.com 80"
+```
+
+### Project Layout
+```
+core/         C 隔離引擎 (Phase 1)
+monitor/      Rust 安全哨兵 + telemetry + audit (Phase 2/3)
+profiles/     strict / datascience / web JSON 規範
+docs/         man page
+scripts/      setup_rootfs.sh / setup_cgroup.sh
+tests/        端到端整合測試 + 惡意樣本
 ```
 
 ## 9. Required Project Deliverables

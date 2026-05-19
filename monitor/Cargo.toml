@@ -1,0 +1,51 @@
+# monitor/Cargo.toml - SentinelBox Rust monitor crate
+#
+# 角色：
+#   - 為 C 沙盒 child 處理 seccomp user notification（Phase 2 核心）。
+#   - 採樣 cgroup v2 telemetry，把資源用量推進 SQLite (Phase 3)。
+#   - 寫入 audit log，提供未來 MCP / UI 查詢歷史 (Phase 3/4)。
+#
+# 為什麼選 Rust：
+#   - 記憶體安全：seccomp notif 處理路徑直接觸碰 raw fd，C 風險高；Rust 借用檢查能消除大量 use-after-free。
+#   - 效能近 C：unsafe 邊界只在 ioctl 與 ffi struct，本體仍可享 zero-cost 抽象。
+#   - 跨語言介面：透過 fd inheritance + 環境變數，與 C 主程式完全解耦。
+
+[package]
+name        = "sentinelbox-monitor"
+version     = "0.1.0"
+edition     = "2021"
+description = "SentinelBox security sentinel: seccomp user notification handler + telemetry + audit DB"
+license     = "MIT"
+authors     = ["SentinelBox Team"]
+
+[[bin]]
+name = "sentinelbox-monitor"
+path = "src/main.rs"
+
+[dependencies]
+# CLI 解析（雖然多數參數由 env var 傳入，仍保留旗標化選項）
+clap        = { version = "4.5", features = ["derive"] }
+# Low-level libc bindings：ioctl / cmsg / 結構體常數
+libc        = "0.2"
+# Unix socket / cmsg 高階封裝
+nix         = { version = "0.27", features = ["socket", "uio", "fs", "process"] }
+# Profile JSON 反序列化；Rust 端用 serde 比手刻 parser 安全
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+# SQLite + WAL 模式 (Phase 3 audit log)
+rusqlite    = { version = "0.31", features = ["bundled"] }
+# 結構化錯誤
+anyhow      = "1"
+thiserror   = "1"
+# 紀錄
+tracing     = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 跨平台時間
+chrono      = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+lto              = true
+codegen-units    = 1
+debug            = "line-tables-only"
+strip            = "debuginfo"
+opt-level        = 3

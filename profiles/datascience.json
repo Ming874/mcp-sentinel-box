@@ -1,0 +1,43 @@
+{
+  "name": "datascience",
+  "description": "資料科學 profile：放寬記憶體上限，仍禁止外網但允許本地 socket 通訊",
+
+  "default_action": "ALLOW",
+
+  "syscall_rules": [
+    { "name": "connect",        "action": "NOTIFY" },
+    { "name": "bind",           "action": "NOTIFY" },
+    { "name": "sendto",         "action": "NOTIFY" },
+
+    { "name": "ptrace",         "action": "KILL"   },
+    { "name": "mount",          "action": "KILL"   },
+    { "name": "umount2",        "action": "KILL"   },
+    { "name": "pivot_root",     "action": "KILL"   },
+    { "name": "chroot",         "action": "ERRNO", "errno": 1 },
+    { "name": "setns",          "action": "KILL"   },
+    { "name": "unshare",        "action": "KILL"   },
+    { "name": "reboot",         "action": "KILL"   },
+    { "name": "init_module",    "action": "KILL"   },
+    { "name": "finit_module",   "action": "KILL"   },
+    { "name": "delete_module",  "action": "KILL"   },
+    { "name": "kexec_load",     "action": "KILL"   },
+    { "name": "bpf",            "action": "KILL"   },
+    { "name": "perf_event_open","action": "KILL"   }
+  ],
+
+  "resources": {
+    "mem_limit_bytes": 1073741824,
+    "cpu_max_quota":   200000,
+    "cpu_max_period":  100000,
+    "pids_max":        128
+  },
+
+  "network": {
+    "allow":     true,
+    "allow_dns": true
+  },
+
+  "filesystem": {
+    "allow_write_overlay": true
+  }
+}

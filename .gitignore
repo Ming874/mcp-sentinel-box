@@ -1,0 +1,30 @@
+# C 編譯產物
+core/build/
+*.o
+*.a
+*.so
+
+# Rust 編譯產物
+monitor/target/
+**/*.rs.bk
+Cargo.lock
+
+# SQLite audit DB
+*.db
+*.db-wal
+*.db-shm
+sentinelbox.db*
+
+# rootfs 內容（由 scripts/setup_rootfs.sh 產生，不該入版控）
+rootfs/busybox/
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 暫存
+*.tmp
+.DS_Store
+Thumbs.db

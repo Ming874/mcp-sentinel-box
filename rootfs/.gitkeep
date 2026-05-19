@@ -1,0 +1,2 @@
+# 此目錄用於放置沙盒 rootfs。
+# 執行 `bash scripts/setup_rootfs.sh ./rootfs/busybox` 建立最小 busybox rootfs。

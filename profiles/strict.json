@@ -1,0 +1,61 @@
+{
+  "name": "strict",
+  "description": "預設嚴格 profile：禁止網路、阻擋核心安全相關 syscall，所有違規均通報 monitor",
+
+  "default_action": "ALLOW",
+
+  "syscall_rules": [
+    { "name": "socket",         "action": "NOTIFY" },
+    { "name": "socketpair",     "action": "NOTIFY" },
+    { "name": "connect",        "action": "NOTIFY" },
+    { "name": "bind",           "action": "NOTIFY" },
+    { "name": "listen",         "action": "NOTIFY" },
+    { "name": "accept",         "action": "NOTIFY" },
+    { "name": "accept4",        "action": "NOTIFY" },
+    { "name": "sendto",         "action": "NOTIFY" },
+    { "name": "recvfrom",       "action": "NOTIFY" },
+    { "name": "sendmsg",        "action": "NOTIFY" },
+    { "name": "recvmsg",        "action": "NOTIFY" },
+    { "name": "sendmmsg",       "action": "NOTIFY" },
+    { "name": "recvmmsg",       "action": "NOTIFY" },
+
+    { "name": "ptrace",         "action": "KILL"   },
+    { "name": "mount",          "action": "KILL"   },
+    { "name": "umount2",        "action": "KILL"   },
+    { "name": "pivot_root",     "action": "KILL"   },
+    { "name": "chroot",         "action": "ERRNO", "errno": 1 },
+    { "name": "setns",          "action": "KILL"   },
+    { "name": "unshare",        "action": "KILL"   },
+    { "name": "reboot",         "action": "KILL"   },
+    { "name": "kexec_load",     "action": "KILL"   },
+    { "name": "init_module",    "action": "KILL"   },
+    { "name": "finit_module",   "action": "KILL"   },
+    { "name": "delete_module",  "action": "KILL"   },
+    { "name": "create_module",  "action": "KILL"   },
+    { "name": "swapon",         "action": "KILL"   },
+    { "name": "swapoff",        "action": "KILL"   },
+    { "name": "iopl",           "action": "KILL"   },
+    { "name": "ioperm",         "action": "KILL"   },
+    { "name": "bpf",            "action": "KILL"   },
+    { "name": "perf_event_open","action": "KILL"   },
+    { "name": "userfaultfd",    "action": "KILL"   },
+    { "name": "mknod",          "action": "ERRNO", "errno": 1 },
+    { "name": "mknodat",        "action": "ERRNO", "errno": 1 }
+  ],
+
+  "resources": {
+    "mem_limit_bytes": 134217728,
+    "cpu_max_quota":   50000,
+    "cpu_max_period":  100000,
+    "pids_max":        32
+  },
+
+  "network": {
+    "allow":     false,
+    "allow_dns": false
+  },
+
+  "filesystem": {
+    "allow_write_overlay": true
+  }
+}
