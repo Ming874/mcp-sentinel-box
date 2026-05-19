@@ -8,24 +8,24 @@
 //!   - 之後若要加 eBPF skb / tracepoint 事件，新增模組即可（見 ebpf/ 目錄）。
 //!
 //! Stop 訊號：由 main thread 透過 AtomicBool 通知；每輪 sleep 結束都會檢查。
+//!
+//! 注意：db 以 Arc<Mutex<AuditDb>> 共享給 main thread，避免 SQLite 多個 writer 競爭。
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
 /// 採樣 loop。`cgroup_path` 為 None 時退化為只記空樣本（dev 環境用）。
+/// db 由 main thread 傳入，兩邊共用同一個 SQLite connection（Mutex 保護）。
 pub fn run(
     cgroup_path: Option<String>,
-    db_path: PathBuf,
+    db: Arc<Mutex<crate::db::AuditDb>>,
     exec_id: i64,
     stop: Arc<AtomicBool>,
 ) -> Result<()> {
-    let mut db = crate::db::AuditDb::open(&db_path)
-        .context("telemetry 開啟 audit DB 失敗")?;
-
     let mut next_tick = Instant::now() + Duration::from_millis(100);
     while !stop.load(Ordering::Relaxed) {
         // sleep until next tick；確保固定 10Hz 取樣，不受 DB 寫入時間漂移
@@ -46,17 +46,26 @@ pub fn run(
             None => (0, 0),
         };
 
-        if let Err(e) = db.record_resource_sample(exec_id, mem, cpu) {
+        if let Err(e) = db.lock().unwrap().record_resource_sample(exec_id, mem, cpu) {
             warn!(?e, "resource_sample 寫入失敗");
         }
     }
     Ok(())
 }
 
-/// 對外便利 API：一次讀取 (mem_peak, cpu_total_usec)。
+/// 對外便利 API：一次讀取 (mem_current_bytes, cpu_total_usec)。
 /// 給 main 結束時印 summary 用。
 pub fn snapshot(cgroup_path: &str) -> Result<(u64, u64)> {
     read_cgroup(cgroup_path)
+}
+
+/// 讀 memory.peak（kernel ≥ 5.19）；不存在時 fallback 讀 memory.current。
+pub fn read_mem_peak(cg: &str) -> u64 {
+    let peak_path = PathBuf::from(cg).join("memory.peak");
+    let curr_path = PathBuf::from(cg).join("memory.current");
+    read_u64_file(peak_path)
+        .or_else(|_| read_u64_file(curr_path))
+        .unwrap_or(0)
 }
 
 /// 讀 memory.current + cpu.stat

@@ -23,7 +23,7 @@ mod ebpf;
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
 use tracing::{info, warn, debug, error};
 
@@ -58,9 +58,9 @@ fn main() -> Result<()> {
         .context("無法載入 profile")?;
     info!(rules = policy.rules_by_name.len(), "policy 載入完成");
 
-    // 3) 開啟 SQLite WAL audit log
-    let mut audit = db::AuditDb::open(&db_path)?;
-    let exec_id = audit.record_execution_start(&policy.name)?;
+    // 3) 開啟 SQLite WAL audit log（Arc<Mutex> 讓 telemetry thread 共用同一個 writer）
+    let audit = Arc::new(Mutex::new(db::AuditDb::open(&db_path)?));
+    let exec_id = audit.lock().unwrap().record_execution_start(&policy.name)?;
     info!(exec_id, db = ?db_path, "audit DB 已就緒");
 
     // 4) 收 notify_fd
@@ -73,10 +73,10 @@ fn main() -> Result<()> {
     let telemetry_handle = {
         let stop = Arc::clone(&stop_flag);
         let cg = cgroup_path.clone();
-        let db_path = db_path.clone();
+        let audit_for_tele = Arc::clone(&audit);
         let exec_id_for_thread = exec_id;
         std::thread::spawn(move || {
-            if let Err(e) = telemetry::run(cg, db_path, exec_id_for_thread, stop) {
+            if let Err(e) = telemetry::run(cg, audit_for_tele, exec_id_for_thread, stop) {
                 error!(?e, "telemetry thread 失敗");
             }
         })
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
         let fb = feedback::build_feedback(&notif, action, errno);
 
         // 寫 audit log
-        if let Err(e) = audit.record_syscall_event(
+        if let Err(e) = audit.lock().unwrap().record_syscall_event(
             exec_id, notif.pid as i64, notif.data.nr, sysname,
             action_to_str(action), errno, &fb.semantic_en) {
             warn!(?e, "audit insert 失敗");
@@ -153,15 +153,15 @@ fn main() -> Result<()> {
     stop_flag.store(true, Ordering::Relaxed);
     let _ = telemetry_handle.join();
 
-    audit.record_execution_end(exec_id, "completed")?;
+    audit.lock().unwrap().record_execution_end(exec_id, "completed")?;
     info!(exec_id, "monitor 結束");
 
     // 給 stdout 一個漂亮的 summary（給人類看）
     if let Some(cg) = cgroup_path.as_ref() {
-        if let Ok((mem_peak, cpu_us)) = telemetry::snapshot(cg) {
-            println!("[monitor] 執行摘要：mem_peak={} KiB cpu_total={} ms",
-                mem_peak / 1024, cpu_us / 1000);
-        }
+        let mem_peak = telemetry::read_mem_peak(cg);
+        let cpu_us   = telemetry::snapshot(cg).map(|(_, c)| c).unwrap_or(0);
+        println!("[monitor] 執行摘要：mem_peak={} KiB  cpu_total={} ms",
+            mem_peak / 1024, cpu_us / 1000);
     }
 
     // 給點時間給 stdout flush

@@ -1,0 +1,37 @@
+# docker-compose.yml - SentinelBox 快速啟動
+#
+# 使用：
+#   docker compose build
+#   docker compose run --rm sandbox -- /bin/sh -c "echo hello"
+#   docker compose run --rm sandbox -- /bin/sh -c "nc -w1 example.com 80"  # 驗證 strict 阻擋網路
+
+services:
+  sandbox:
+    build: .
+    image: sentinelbox:latest
+    # 沙盒需要 privileged 才能建立 user / pid / net namespace
+    privileged: true
+    # private cgroupns 讓容器內的 cgroup 操作不污染 host
+    cgroupns: private
+    security_opt:
+      - seccomp=unconfined  # sentinelbox 自己裝 seccomp filter
+      - apparmor=unconfined
+    volumes:
+      - sentinelbox-data:/var/lib/sentinelbox
+    environment:
+      SENTINELBOX_PROFILE: strict
+      SENTINELBOX_LOG: info
+    # 預設不帶 CMD，由 docker compose run 傳入
+    # 例: docker compose run --rm sandbox -- /bin/sh -c "echo hi"
+
+  # 快速看 audit log（不啟沙盒）
+  audit:
+    image: sentinelbox:latest
+    volumes:
+      - sentinelbox-data:/var/lib/sentinelbox
+    entrypoint: ["sqlite3", "/var/lib/sentinelbox/audit.db"]
+    command: [".mode", "column", ".headers", "on", "SELECT * FROM executions ORDER BY start_ts DESC LIMIT 20;"]
+
+volumes:
+  sentinelbox-data:
+    driver: local

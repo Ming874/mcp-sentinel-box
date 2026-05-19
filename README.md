@@ -96,49 +96,58 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 
 ## 8. Getting Started
 
-### Prerequisites (Ubuntu 22.04+ / Linux 5.15+)
-```bash
-sudo apt update
-sudo apt install -y build-essential libseccomp-dev libcap-dev libelf-dev \
-                    clang busybox-static curl pkg-config
-# Rust toolchain
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+SentinelBox 以 **Docker image** 交付，任何有 Docker 的 Linux / macOS / Windows 機器皆可執行，無需手動安裝 libseccomp / Rust toolchain。
+
+### Prerequisites
+- Docker 24.0+（或 OrbStack / Podman）
+- Linux kernel 5.15+（宿主機或 Docker Desktop VM 提供）
 
 ### Build
 ```bash
-# 編譯 C 隔離引擎 + Rust 安全哨兵
-make all
-
-# 建立最小 busybox rootfs (沙盒內檔案系統的 lowerdir)
-make rootfs
+docker compose build
+# 或
+docker build -t sentinelbox:latest .
 ```
 
-### Run
+### Run — Hello World
 ```bash
-./core/build/sentinelbox \
-    --profile=strict \
-    --rootfs=./rootfs/busybox \
-    --monitor=./monitor/target/release/sentinelbox-monitor \
-    -- /bin/sh -c "echo hello from sandbox"
+docker compose run --rm sandbox -- /bin/sh -c "echo hello from sandbox"
 ```
 
-### Try the Semantic Feedback Loop
+### Run — 驗證 Semantic Feedback（網路封鎖）
 ```bash
-# 嘗試在 strict profile 內建立 socket → monitor 攔截並印出語意拒絕訊息
-./core/build/sentinelbox \
-    --profile=strict --rootfs=./rootfs/busybox -- \
-    /bin/sh -c "echo GET / | nc -w 1 example.com 80"
+# strict profile 下嘗試連線 → monitor 攔截並輸出語意說明
+docker compose run --rm sandbox -- \
+    /bin/sh -c "echo GET / | nc -w1 example.com 80"
+# 預期輸出：[SEMANTIC] 動作拒絕：程式碼嘗試對外連線...
+```
+
+### Run — Data Science Profile
+```bash
+docker compose run --rm -e SENTINELBOX_PROFILE=datascience sandbox -- \
+    /bin/sh -c "wget -q -O- http://example.com | head -5"
+```
+
+### 查詢 Audit Log
+```bash
+# 列出最近 20 次執行記錄
+docker compose run --rm audit
+
+# 或直接用 sqlite3
+docker run --rm -v sentinelbox-data:/data ubuntu:22.04 \
+    sqlite3 /data/audit.db "SELECT * FROM syscall_events ORDER BY ts DESC LIMIT 10;"
 ```
 
 ### Project Layout
 ```
-core/         C 隔離引擎 (Phase 1)
-monitor/      Rust 安全哨兵 + telemetry + audit (Phase 2/3)
+core/         C 隔離引擎 (Phase 1) — namespace / pivot_root / overlayfs / cgroup
+monitor/      Rust 安全哨兵 (Phase 2/3) — seccomp notif / telemetry / SQLite audit
 profiles/     strict / datascience / web JSON 規範
 docs/         man page
-scripts/      setup_rootfs.sh / setup_cgroup.sh
+scripts/      docker-entrypoint.sh / setup_rootfs.sh / setup_cgroup.sh
 tests/        端到端整合測試 + 惡意樣本
+Dockerfile    Multi-stage build（c-builder → rust-builder → runtime）
+docker-compose.yml  一鍵執行 + audit log 查詢
 ```
 
 ## 9. Required Project Deliverables
