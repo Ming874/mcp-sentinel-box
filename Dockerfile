@@ -10,7 +10,7 @@
 #   （需要 --privileged --cgroupns=private，見 docker-compose.yml）
 
 ARG TZ=Asia/Taipei
-ARG UBUNTU_VERSION=22.04
+ARG UBUNTU_VERSION=24.04
 
 # ─────────────────────────────────────────────
 # Stage 1：C 隔離引擎
