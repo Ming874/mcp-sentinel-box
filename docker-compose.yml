@@ -11,8 +11,8 @@ services:
     image: sentinelbox:latest
     # 沙盒需要 privileged 才能建立 user / pid / net namespace
     privileged: true
-    # private cgroupns 讓容器內的 cgroup 操作不污染 host
-    cgroupns: private
+    # private cgroup namespace 讓容器內的 cgroup 操作不污染 host
+    cgroup: private
     security_opt:
       - seccomp=unconfined  # sentinelbox 自己裝 seccomp filter
       - apparmor=unconfined
