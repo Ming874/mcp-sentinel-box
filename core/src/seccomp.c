@@ -11,7 +11,8 @@
  *   1. ctx = seccomp_init(default_action)
  *   2. 對每條 profile rule 呼叫 seccomp_rule_add(ctx, action, syscall_nr, ...)
  *      將 NOTIFY 動作鎖定到該 syscall。
- *   3. 設 SCMP_FLTATR_NEW_LISTENER=1，seccomp_load 會自動建立 listener。
+ *   3. seccomp_load() 載入；libseccomp 看到 filter 內含 SCMP_ACT_NOTIFY 規則時，
+ *      會自動在 kernel side 建立 user-notification listener。
  *   4. seccomp_notify_fd(ctx) 取得 fd，回傳給呼叫端。
  *   5. fd 會透過 SCM_RIGHTS 傳給 Rust monitor。
  *
@@ -66,14 +67,7 @@ int sb_seccomp_install(const sb_profile_t *p, int *listener_fd_out) {
         }
     }
 
-    /* 3) 設定 NEW_LISTENER 屬性，使 seccomp_load 自動建立 user notification fd */
-    if (seccomp_attr_set(ctx, SCMP_FLTATR_NEW_LISTENER, 1) != 0) {
-        sb_log_err("SCMP_FLTATR_NEW_LISTENER 設定失敗");
-        seccomp_release(ctx);
-        return SB_ERR_SECCOMP;
-    }
-
-    /* 4) 載入 filter。
+    /* 3) 載入 filter。
      *    呼叫前已 setno_new_privs(1)；否則 unprivileged 載入會被拒。 */
     int rc = seccomp_load(ctx);
     if (rc != 0) {
@@ -82,7 +76,9 @@ int sb_seccomp_install(const sb_profile_t *p, int *listener_fd_out) {
         return SB_ERR_SECCOMP;
     }
 
-    /* 5) 取得 notification fd。回傳值 >= 0 為合法 fd。 */
+    /* 4) 取得 notification fd。回傳值 >= 0 為合法 fd。
+     *    libseccomp 在 seccomp_load() 時若 filter 含 SCMP_ACT_NOTIFY 規則，
+     *    會在 kernel 建立 listener；此處只是取出對應 fd。 */
     int fd = seccomp_notify_fd(ctx);
     if (fd < 0) {
         sb_log_err("seccomp_notify_fd 取得失敗: %d", fd);

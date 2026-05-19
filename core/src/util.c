@@ -84,7 +84,7 @@ void sb_die(const char *fmt, ...) {
 }
 
 /* 把整段 buffer 寫到指定路徑（覆蓋）
- * 主要用於 /proc/*/uid_map、/sys/fs/cgroup/.../cpu.max 等 procfs/sysfs 介面，
+ * 主要用於 /proc/<pid>/uid_map、/sys/fs/cgroup/.../cpu.max 等 procfs/sysfs 介面，
  * 它們對「一次性寫入」的需求嚴格，必須一次 write 把完整內容塞進去。 */
 int sb_write_file(const char *path, const char *buf, size_t len) {
     /* O_CLOEXEC 確保此 fd 不會洩漏到 exec 後的子行程，避免被沙盒內程式偷用 */

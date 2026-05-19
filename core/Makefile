@@ -15,8 +15,10 @@ DESTDIR     ?=
 
 # 嚴格 warning，配合 Linux Kernel coding style，提早抓 bug
 CFLAGS_BASE := -std=gnu11 -Wall -Wextra -Wshadow -Wpointer-arith \
-               -Wstrict-prototypes -Wmissing-prototypes -Wno-unused-parameter \
-               -D_GNU_SOURCE -Iinclude
+               -Wstrict-prototypes -Wmissing-prototypes \
+               -Wno-unused-parameter -Wno-format-truncation \
+               -Iinclude
+# 各 .c 檔頭已自行 #define _GNU_SOURCE；這裡不再加 -D 以避免 redefined warning
 CFLAGS_REL  := -O2 -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE
 CFLAGS_DBG  := -O0 -g3 -fsanitize=address,undefined -fno-omit-frame-pointer
 

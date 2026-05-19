@@ -2,7 +2,7 @@
  * sentinelbox.h - SentinelBox 核心隔離引擎共用標頭檔
  *
  * 本檔宣告所有跨模組共用的資料結構、常數與函式原型。
- * 任何 core/src/*.c 都應 #include "sentinelbox.h" 以取得一致的型別定義。
+ * 任何 core/src 目錄下的 .c 都應 #include "sentinelbox.h" 以取得一致的型別定義。
  *
  * 設計原則：
  *   1. 結構體以 sb_ 前綴避免污染全域命名空間。
@@ -77,7 +77,7 @@ typedef struct {
     int                 errno_value;    /* 若 action 為 ERRNO，回傳的 errno */
 } sb_syscall_rule_t;
 
-/* Profile 結構 - 對應 profiles/*.json */
+/* Profile 結構 - 對應 profiles 目錄下的 .json */
 typedef struct {
     char                name[SB_MAX_PROFILE_NAME];  /* profile 識別名 */
 
