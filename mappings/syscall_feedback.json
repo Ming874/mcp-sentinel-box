@@ -1,0 +1,67 @@
+{
+  "$schema_version": 1,
+  "_comment": "底層 syscall 拒絕 → 自然語言語義回饋的對照表 (對應提案書 §4 Semantic Feedback)。每筆 entry 以 syscall 名稱群組為單位；查表 miss 時 fallback 到 default。可用變數：{name}、{profile}、{arg0..arg5}（會展開成 syscall_data.args[i] 的十進位整數）。",
+
+  "default": {
+    "zh": "動作拒絕：syscall {name} 在 profile「{profile}」內不被允許。",
+    "en": "Action Denied: syscall {name} is not allowed in this profile.",
+    "hint": "若必要，請評估是否切換 profile，或避免使用 {name}。"
+  },
+
+  "groups": [
+    {
+      "syscalls": ["socket", "socketpair"],
+      "zh": "安全違規：嘗試在 profile「{profile}」內建立 socket（family={arg0}）。",
+      "en": "Security Violation: Attempt to create a socket (family={arg0}) under profile '{profile}'.",
+      "hint": "改用沙盒外預先準備好的資料；本 profile 禁止任何網路連線。"
+    },
+    {
+      "syscalls": ["connect", "sendto", "sendmsg", "sendmmsg"],
+      "zh": "動作拒絕：程式碼嘗試對外連線（{name}）。",
+      "en": "Action Denied: Your code attempted to open a network connection ({name}).",
+      "hint": "請改用本地處理；或切換到允許網路的 profile (datascience / web)。"
+    },
+    {
+      "syscalls": ["bind", "listen", "accept", "accept4"],
+      "zh": "動作拒絕：嘗試開放對外監聽埠（{name}）。",
+      "en": "Action Denied: Inbound listening port is disallowed in this profile ({name}).",
+      "hint": "若需要對外服務，請改用 web profile 並指定允許埠範圍。"
+    },
+    {
+      "syscalls": ["ptrace"],
+      "zh": "安全違規：偵測到 ptrace 嘗試。",
+      "en": "Security Violation: ptrace detected.",
+      "hint": "不允許在沙盒內附加除錯器；移除 ptrace / strace 呼叫。"
+    },
+    {
+      "syscalls": ["mount", "umount2", "pivot_root", "chroot", "setns", "unshare"],
+      "zh": "動作拒絕：禁止變更檔案系統或 namespace（syscall={name}）。",
+      "en": "Action Denied: Filesystem/namespace mutation ({name}) is forbidden.",
+      "hint": "沙盒內 rootfs 為唯讀 overlay；不需要也不允許 remount。"
+    },
+    {
+      "syscalls": ["bpf", "perf_event_open", "init_module", "finit_module", "delete_module", "create_module", "kexec_load"],
+      "zh": "安全違規：嘗試載入或操作 kernel 元件（{name}）。",
+      "en": "Security Violation: Kernel-level operation ({name}) is forbidden.",
+      "hint": "沙盒不允許接觸 BPF / kernel module；改用 user-space 等效實作。"
+    },
+    {
+      "syscalls": ["reboot", "swapon", "swapoff", "iopl", "ioperm"],
+      "zh": "安全違規：嘗試操作系統層級控制（{name}）。",
+      "en": "Security Violation: System-level control attempt ({name}) is forbidden.",
+      "hint": "沙盒 user namespace 不具備這類權限；移除相關呼叫。"
+    },
+    {
+      "syscalls": ["userfaultfd"],
+      "zh": "安全違規：偵測到 userfaultfd（過去多次被用於 kernel exploit 鏈）。",
+      "en": "Security Violation: userfaultfd is blocked (historically abused in exploit chains).",
+      "hint": "若你不是在做 kernel research，請移除此呼叫。"
+    },
+    {
+      "syscalls": ["mknod", "mknodat"],
+      "zh": "動作拒絕：嘗試建立 device node。",
+      "en": "Action Denied: Device node creation is disallowed.",
+      "hint": "沙盒不應有自製 device node；改用一般檔案 / pipe / fifo。"
+    }
+  ]
+}

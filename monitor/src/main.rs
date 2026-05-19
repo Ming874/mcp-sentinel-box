@@ -47,6 +47,8 @@ fn main() -> Result<()> {
     let profile_dir: PathBuf = env_or("SENTINELBOX_PROFILE_DIR", "./profiles").into();
     let cgroup_path: Option<String> = std::env::var("SENTINELBOX_CGROUP").ok();
     let db_path: PathBuf = env_or("SENTINELBOX_DB", "./sentinelbox.db").into();
+    let mapping_path: PathBuf = env_or("SENTINELBOX_MAPPINGS",
+                                       "./mappings/syscall_feedback.json").into();
 
     info!(?profile_name, ?profile_dir, ?cgroup_path, "monitor 啟動");
 
@@ -57,6 +59,10 @@ fn main() -> Result<()> {
     let policy = policy::Policy::load(&profile_dir, &profile_name)
         .context("無法載入 profile")?;
     info!(rules = policy.rules_by_name.len(), "policy 載入完成");
+
+    // 2b) 載入錯誤碼 → 語義 mapping 邏輯表
+    let fbmap = feedback::FeedbackMap::load(&mapping_path)
+        .context("無法載入 syscall_feedback 對照表")?;
 
     // 3) 開啟 SQLite WAL audit log（Arc<Mutex> 讓 telemetry thread 共用同一個 writer）
     let audit = Arc::new(Mutex::new(db::AuditDb::open(&db_path)?));
@@ -97,7 +103,7 @@ fn main() -> Result<()> {
         // 查 policy
         let sysname = seccomp::syscall_name(notif.data.nr);
         let (action, errno) = policy.lookup(sysname);
-        let fb = feedback::build_feedback(&notif, action, errno);
+        let fb = fbmap.build(&notif, sysname, &policy.name, action, errno);
 
         // 寫 audit log
         if let Err(e) = audit.lock().unwrap().record_syscall_event(

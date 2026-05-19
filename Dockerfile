@@ -70,6 +70,9 @@ COPY --from=rust-builder /src/monitor/target/release/sentinelbox-monitor  /usr/l
 # Profile JSON
 COPY profiles/ /etc/sentinelbox/profiles/
 
+# 錯誤碼 → 語義 mapping 邏輯表（提案書 §4，可由 SENTINELBOX_MAPPINGS 指向自訂檔）
+COPY mappings/ /etc/sentinelbox/mappings/
+
 # 建立最小 busybox rootfs（沙盒內的 lowerdir）
 RUN mkdir -p /srv/rootfs/{bin,sbin,usr/bin,usr/sbin,etc,proc,sys,dev,tmp,var/log} \
     && cp /bin/busybox /srv/rootfs/bin/busybox \
@@ -88,6 +91,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # 預設環境變數（可被 docker run -e 覆寫）
 ENV SENTINELBOX_PROFILE=strict \
     SENTINELBOX_DB=/var/lib/sentinelbox/audit.db \
+    SENTINELBOX_MAPPINGS=/etc/sentinelbox/mappings/syscall_feedback.json \
     SENTINELBOX_LOG=info
 
 VOLUME /var/lib/sentinelbox

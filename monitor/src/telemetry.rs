@@ -11,7 +11,7 @@
 //!
 //! 注意：db 以 Arc<Mutex<AuditDb>> 共享給 main thread，避免 SQLite 多個 writer 競爭。
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};

@@ -27,6 +27,7 @@
 #include <getopt.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
 static void usage(const char *argv0) {
     fprintf(stderr,
@@ -127,6 +128,16 @@ int main(int argc, char **argv) {
     sb_log_init(cfg.verbose);
     sb_log_info("sentinelbox 啟動 (profile=%s, rootfs=%s)",
                 cfg.profile_name, cfg.rootfs_dir);
+
+    /* 全程忽略 SIGPIPE：父行程跟 sandbox child 都會對 socketpair 對端 sendmsg。
+     * 對端若已關閉，sendmsg 預設行為是同時 raise SIGPIPE，預設 handler 直接殺行程。
+     * 我們希望 sendmsg 只是回 EPIPE 由呼叫端決定，不要被靜默殺掉。
+     * 設定會被 child execvp() 重置為 SIG_DFL，沙盒內的目標程式不受影響。 */
+    {
+        struct sigaction sa = { 0 };
+        sa.sa_handler = SIG_IGN;
+        sigaction(SIGPIPE, &sa, NULL);
+    }
 
     /* 載入 profile */
     sb_profile_t *p = sb_profile_load(cfg.profile_dir, cfg.profile_name);
