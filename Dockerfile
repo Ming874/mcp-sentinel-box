@@ -74,7 +74,12 @@ COPY profiles/ /etc/sentinelbox/profiles/
 COPY mappings/ /etc/sentinelbox/mappings/
 
 # 建立最小 busybox rootfs（沙盒內的 lowerdir）
-RUN mkdir -p /srv/rootfs/{bin,sbin,usr/bin,usr/sbin,etc,proc,sys,dev,tmp,var/log} \
+# 注意：明列目錄而非用 {a,b} brace expansion，因 Docker RUN 預設 /bin/sh=dash 不支援
+RUN mkdir -p \
+        /srv/rootfs/bin /srv/rootfs/sbin \
+        /srv/rootfs/usr/bin /srv/rootfs/usr/sbin \
+        /srv/rootfs/etc /srv/rootfs/proc /srv/rootfs/sys \
+        /srv/rootfs/dev /srv/rootfs/tmp /srv/rootfs/var/log \
     && cp /bin/busybox /srv/rootfs/bin/busybox \
     && /srv/rootfs/bin/busybox --install -s /srv/rootfs/bin \
     && chmod 1777 /srv/rootfs/tmp
