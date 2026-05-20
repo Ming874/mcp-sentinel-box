@@ -31,7 +31,7 @@ RUN make all
 # ─────────────────────────────────────────────
 # Stage 2：Rust monitor + telemetry + audit DB
 # ─────────────────────────────────────────────
-FROM rust:1.78-slim-bookworm AS rust-builder
+FROM rust:1.85-slim-bookworm AS rust-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
