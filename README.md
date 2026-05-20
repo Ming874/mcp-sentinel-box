@@ -138,13 +138,32 @@ docker run --rm -v sentinelbox-data:/data ubuntu:22.04 \
     sqlite3 /data/audit.db "SELECT * FROM syscall_events ORDER BY ts DESC LIMIT 10;"
 ```
 
+### 原生 / VM 執行（Native，eBPF 完整路徑）
+
+Docker 在巢狀 container 下缺 `SYS_ADMIN`、無法 remount `/proc`，沙盒與 eBPF 探針無法完整運作。
+若需完整功能（含 eBPF 遙測），於原生 Linux 或 VM（kernel 5.15+，具 `/sys/kernel/btf/vmlinux`）執行：
+
+```bash
+# 一鍵裝依賴 + 編譯 + 建 rootfs
+bash scripts/setup.sh
+
+# 執行沙盒（取代 docker compose run）
+bash scripts/run.sh -- /bin/sh -c "echo hello from sandbox"
+SENTINELBOX_PROFILE=datascience bash scripts/run.sh -- python3 -c "print(1)"
+
+# audit log 直接查（DB 預設於 repo 根目錄 sentinelbox.db）
+sqlite3 ./sentinelbox.db "SELECT * FROM executions ORDER BY start_ts DESC LIMIT 20;"
+```
+
+> Docker 路徑與原生路徑共用同一份 C/Rust 程式碼；兩者為雙軌交付，Docker 用於快速體驗與 CI，原生路徑用於完整功能驗證。
+
 ### Project Layout
 ```
 core/         C 隔離引擎 (Phase 1) — namespace / pivot_root / overlayfs / cgroup
 monitor/      Rust 安全哨兵 (Phase 2/3) — seccomp notif / telemetry / SQLite audit
 profiles/     strict / datascience / web JSON 規範
 docs/         man page
-scripts/      docker-entrypoint.sh / setup_rootfs.sh / setup_cgroup.sh
+scripts/      docker-entrypoint.sh（Docker）/ setup.sh + run.sh（原生 VM）/ setup_rootfs.sh / setup_cgroup.sh
 tests/        端到端整合測試 + 惡意樣本
 Dockerfile    Multi-stage build（c-builder → rust-builder → runtime）
 docker-compose.yml  一鍵執行 + audit log 查詢
