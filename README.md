@@ -141,12 +141,24 @@ docker run --rm -v sentinelbox-data:/data ubuntu:22.04 \
 ### 原生 / VM 執行（Native，eBPF 完整路徑）
 
 Docker 在巢狀 container 下缺 `SYS_ADMIN`、無法 remount `/proc`，沙盒與 eBPF 探針無法完整運作。
-若需完整功能（含 eBPF 遙測），於原生 Linux 或 VM（kernel 5.15+，具 `/sys/kernel/btf/vmlinux`）執行：
+若需完整功能（含 eBPF 遙測），於原生 Linux 或 VM（kernel 5.15+，具 `/sys/kernel/btf/vmlinux`）執行。
+
+**一致環境的正式入口是 `scripts/provision.sh`** —— 從空白 Ubuntu VM 一鍵到可執行，
+裝 git/編譯依賴、pin Rust toolchain（`rust-toolchain.toml`）、clone、build、rootfs、smoke test 全包，
+所有人跑同一支得到同一套環境。OrbStack 範例：
 
 ```bash
-# 一鍵裝依賴 + 編譯 + 建 rootfs
-bash scripts/setup.sh
+# 1) 開一台 Ubuntu VM（非 container，才有完整 namespace/mount/eBPF 權限）
+orb create ubuntu sentinelbox && orb -m sentinelbox
 
+# 2) VM 內 bootstrap：取得 provision.sh 後執行（私有 repo 需自帶存取權）
+git clone <repo-url> ~/mcp-sentinel-box        # 或 curl 取 provision.sh
+bash ~/mcp-sentinel-box/scripts/provision.sh   # idempotent，重跑會自動 pull+rebuild
+```
+
+provisioned 後的日常指令：
+
+```bash
 # 執行沙盒（取代 docker compose run）
 bash scripts/run.sh -- /bin/sh -c "echo hello from sandbox"
 SENTINELBOX_PROFILE=datascience bash scripts/run.sh -- python3 -c "print(1)"
@@ -154,6 +166,8 @@ SENTINELBOX_PROFILE=datascience bash scripts/run.sh -- python3 -c "print(1)"
 # audit log 直接查（DB 預設於 repo 根目錄 sentinelbox.db）
 sqlite3 ./sentinelbox.db "SELECT * FROM executions ORDER BY start_ts DESC LIMIT 20;"
 ```
+
+腳本分工：`provision.sh`（整機 bootstrap）→ `setup.sh`（repo 內依賴+編譯+rootfs）→ `run.sh`（跑單次沙盒）。
 
 > Docker 路徑與原生路徑共用同一份 C/Rust 程式碼；兩者為雙軌交付，Docker 用於快速體驗與 CI，原生路徑用於完整功能驗證。
 

@@ -1,0 +1,6 @@
+# 鎖定 Rust toolchain，確保所有人(VM / Docker / CI)用同一版編譯 monitor。
+# 對齊 Dockerfile 的 rust:1.85（edition 2021；後續若導入 eBPF aya 需 nightly 再另開）。
+[toolchain]
+channel = "1.85.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
