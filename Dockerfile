@@ -94,7 +94,10 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 預設環境變數（可被 docker run -e 覆寫）
+# SENTINELBOX_PROFILE_DIR 必須設定：monitor 子進程靠這個 env 找 profile JSON，
+# 否則會 fallback 到相對路徑 ./profiles 而找不到。
 ENV SENTINELBOX_PROFILE=strict \
+    SENTINELBOX_PROFILE_DIR=/etc/sentinelbox/profiles \
     SENTINELBOX_DB=/var/lib/sentinelbox/audit.db \
     SENTINELBOX_MAPPINGS=/etc/sentinelbox/mappings/syscall_feedback.json \
     SENTINELBOX_LOG=info
