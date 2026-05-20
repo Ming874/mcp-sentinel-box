@@ -105,10 +105,20 @@ fn main() -> Result<()> {
         let (action, errno) = policy.lookup(sysname);
         let fb = fbmap.build(&notif, sysname, &policy.name, action, errno);
 
-        // 寫 audit log
+        // 原始 errno/signal 符號名（給 MCP 翻譯用的 raw 欄位，非語意翻譯）：
+        //   KILL  → 我們先送 EPERM 再 SIGKILL，故記 SIGKILL
+        //   ALLOW → 放行不帶 errno，記 OK
+        //   其餘  → errno 數字對應的符號（EPERM/EACCES...）
+        let signal_name = match action {
+            policy::Action::Allow => "OK",
+            policy::Action::Kill => "SIGKILL",
+            _ => errno_name(errno),
+        };
+
+        // 寫 audit log（path 暫填 None：seccomp args 取 path 需讀 /proc/<pid>/mem，後續再補）
         if let Err(e) = audit.lock().unwrap().record_syscall_event(
             exec_id, notif.pid as i64, notif.data.nr, sysname,
-            action_to_str(action), errno, &fb.semantic_en) {
+            action_to_str(action), errno, signal_name, None, &fb.semantic_en) {
             warn!(?e, "audit insert 失敗");
         }
 
@@ -181,5 +191,28 @@ fn action_to_str(a: policy::Action) -> &'static str {
         policy::Action::Errno  => "ERRNO",
         policy::Action::Notify => "NOTIFY",
         policy::Action::Kill   => "KILL",
+    }
+}
+
+/// errno 數字 → 符號名。只列沙盒常見的 errno；其餘回 "UNKNOWN"。
+/// 純粹是 raw 欄位（讓 MCP 不必自己背數字），不做任何語意翻譯。
+fn errno_name(errno: i32) -> &'static str {
+    match errno {
+        0 => "OK",
+        libc::EPERM => "EPERM",
+        libc::ENOENT => "ENOENT",
+        libc::EACCES => "EACCES",
+        libc::EAGAIN => "EAGAIN",
+        libc::ENOMEM => "ENOMEM",
+        libc::EFAULT => "EFAULT",
+        libc::EBUSY => "EBUSY",
+        libc::EEXIST => "EEXIST",
+        libc::EINVAL => "EINVAL",
+        libc::ENOSYS => "ENOSYS",
+        libc::EADDRINUSE => "EADDRINUSE",
+        libc::ECONNREFUSED => "ECONNREFUSED",
+        libc::ENETUNREACH => "ENETUNREACH",
+        libc::EAFNOSUPPORT => "EAFNOSUPPORT",
+        _ => "UNKNOWN",
     }
 }

@@ -17,11 +17,12 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 取得目前 UNIX epoch 秒
-fn now_ts() -> i64 {
+/// 取得目前 UNIX epoch 毫秒。
+/// 全表 ts 一律毫秒精度；10Hz 取樣若用秒會多筆同 ts，圖表會塌成一點。
+fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
+        .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
 
@@ -56,7 +57,7 @@ impl AuditDb {
     pub fn record_execution_start(&mut self, profile: &str) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO executions (profile, start_ts) VALUES (?, ?)",
-            params![profile, now_ts()],
+            params![profile, now_ms()],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -64,7 +65,7 @@ impl AuditDb {
     pub fn record_execution_end(&mut self, exec_id: i64, status: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE executions SET end_ts = ?, status = ? WHERE id = ?",
-            params![now_ts(), status, exec_id],
+            params![now_ms(), status, exec_id],
         )?;
         Ok(())
     }
@@ -77,12 +78,14 @@ impl AuditDb {
         syscall_name: &str,
         action: &str,
         errno: i32,
+        signal_name: &str,
+        path: Option<&str>,
         semantic_msg: &str,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO syscall_events (exec_id, ts, pid, syscall_nr, syscall_name, action, errno, semantic_msg)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            params![exec_id, now_ts(), pid, syscall_nr, syscall_name, action, errno, semantic_msg],
+            "INSERT INTO syscall_events (exec_id, ts, pid, syscall_nr, syscall_name, action, errno, signal_name, path, semantic_msg)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![exec_id, now_ms(), pid, syscall_nr, syscall_name, action, errno, signal_name, path, semantic_msg],
         )?;
         Ok(())
     }
@@ -92,11 +95,12 @@ impl AuditDb {
         exec_id: i64,
         mem_bytes: u64,
         cpu_usec: u64,
+        cpu_pct: f64,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO resource_samples (exec_id, ts, mem_bytes, cpu_usec)
-             VALUES (?, ?, ?, ?)",
-            params![exec_id, now_ts(), mem_bytes as i64, cpu_usec as i64],
+            "INSERT INTO resource_samples (exec_id, ts, mem_bytes, cpu_usec, cpu_pct)
+             VALUES (?, ?, ?, ?, ?)",
+            params![exec_id, now_ms(), mem_bytes as i64, cpu_usec as i64, cpu_pct],
         )?;
         Ok(())
     }

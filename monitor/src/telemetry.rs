@@ -27,6 +27,15 @@ pub fn run(
     stop: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut next_tick = Instant::now() + Duration::from_millis(100);
+    // 算 CPU% 需要兩次取樣的差：cgroup cpu.stat 給的是「累積」微秒，
+    // 故記住上一輪的 cpu_usec 與當下時刻，本輪用 delta_cpu / delta_time 算佔比。
+    let mut prev_cpu_usec: Option<u64> = None;
+    let mut prev_instant = Instant::now();
+    // 核心數：cpu_pct 要除以核心數才是「佔整台機器」的比例。
+    // 例：12 核用滿 3 核 → 300% / 12 = 25%。取不到時退化為 1（即 per-core 加總值）。
+    let num_cores = std::thread::available_parallelism()
+        .map(|n| n.get() as f64)
+        .unwrap_or(1.0);
     while !stop.load(Ordering::Relaxed) {
         // sleep until next tick；確保固定 10Hz 取樣，不受 DB 寫入時間漂移
         let now = Instant::now();
@@ -46,7 +55,24 @@ pub fn run(
             None => (0, 0),
         };
 
-        if let Err(e) = db.lock().unwrap().record_resource_sample(exec_id, mem, cpu) {
+        // 區間 CPU 使用率 = 期間 CPU 微秒增量 / 實際經過時間 / 核心數 * 100。
+        // 除以核心數後是「佔整台機器」的比例，範圍 0~100（全核滿載才接近 100）。
+        let sample_instant = Instant::now();
+        let cpu_pct = match prev_cpu_usec {
+            Some(prev) => {
+                let elapsed_us = sample_instant.duration_since(prev_instant).as_micros() as f64;
+                if elapsed_us > 0.0 {
+                    (cpu.saturating_sub(prev) as f64) / elapsed_us / num_cores * 100.0
+                } else {
+                    0.0
+                }
+            }
+            None => 0.0, // 第一筆沒有前值可比，記 0
+        };
+        prev_cpu_usec = Some(cpu);
+        prev_instant = sample_instant;
+
+        if let Err(e) = db.lock().unwrap().record_resource_sample(exec_id, mem, cpu, cpu_pct) {
             warn!(?e, "resource_sample 寫入失敗");
         }
     }
