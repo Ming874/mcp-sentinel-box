@@ -116,10 +116,12 @@ docker compose run --rm sandbox -- /bin/sh -c "echo hello from sandbox"
 
 ### Run — 驗證 Semantic Feedback（網路封鎖）
 ```bash
-# strict profile 下嘗試連線 → monitor 攔截並輸出語意說明
+# strict profile 下嘗試連線 → monitor 在 socket() 就攔截並輸出語意說明
 docker compose run --rm sandbox -- \
     /bin/sh -c "echo GET / | nc -w1 example.com 80"
-# 預期輸出：[SEMANTIC] 動作拒絕：程式碼嘗試對外連線...
+# 預期輸出（實測）：
+#   [SEMANTIC] 安全違規：嘗試在 profile「strict」內建立 socket（family=2）。
+#              HINT  → 改用沙盒外預先準備好的資料；本 profile 禁止任何網路連線。
 ```
 
 ### Run — Data Science Profile
@@ -138,10 +140,21 @@ docker run --rm -v sentinelbox-data:/data ubuntu:22.04 \
     sqlite3 /data/audit.db "SELECT * FROM syscall_events ORDER BY ts DESC LIMIT 10;"
 ```
 
-### 原生 / VM 執行（Native，eBPF 完整路徑）
+### Docker vs 原生 — 功能對照（實測）
 
-Docker 在巢狀 container 下缺 `SYS_ADMIN`、無法 remount `/proc`，沙盒與 eBPF 探針無法完整運作。
-若需完整功能（含 eBPF 遙測），於原生 Linux 或 VM（kernel 5.15+，具 `/sys/kernel/btf/vmlinux`）執行。
+`docker compose`（`--privileged --cgroupns=private`）下，沙盒**主路徑完整可用**：
+namespace 隔離、`pivot_root`+OverlayFS、seccomp 攔截、語義回饋、SQLite audit 全部正常
+（hello → 印出輸出；`nc` 連外 → socket() 被攔 + 語義訊息；audit DB 寫入 syscall_events
+與 resource_samples）。
+
+Docker（尤其 Docker Desktop / WSL2 backend）唯二降級項：
+- **Cgroup 資源上限**：容器內無 cgroup v2 delegation，建子 cgroup 會 `Permission denied`
+  → 自動降級為「無資源上限」並繼續執行（不致命）。
+- **eBPF 遙測完整路徑**：容器預設摸不到 `/sys/kernel/btf/vmlinux` / 缺 `CAP_BPF`
+  → 目前 telemetry 走 cgroup 檔案取樣即可，eBPF probe 為 stub。
+
+需要**完整 cgroup 資源限制 + eBPF 遙測**時，於**原生 Linux 或 WSL2**
+（kernel 5.15+，具 `/sys/kernel/btf/vmlinux` 與 cgroup delegation）執行。
 
 **一致環境的正式入口是 `scripts/provision.sh`** —— 從空白 Ubuntu VM 一鍵到可執行，
 裝 git/編譯依賴、pin Rust toolchain（`rust-toolchain.toml`）、clone、build、rootfs、smoke test 全包，
