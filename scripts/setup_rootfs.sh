@@ -26,7 +26,16 @@ mkdir -p "$ROOT"/{bin,sbin,usr/bin,usr/sbin,etc,proc,sys,dev,tmp,var/log}
 
 # 把 busybox 複製進來；--install 會建立眾多 symlink (ls, cat, sh, ...)
 cp "$(command -v busybox)" "$ROOT/bin/busybox"
-"$ROOT/bin/busybox" --install -s "$ROOT/bin"
+
+# 為每個 applet 建立「相對」符號連結 (sh -> busybox)。
+# 不可用 `busybox --install -s`：它建的是【絕對】連結指向建置當下的 busybox 路徑
+# (如 /work/rootfs/busybox/bin/busybox)，sandbox pivot_root 後該路徑不存在 → execvp ENOENT。
+# 相對連結 sh->busybox 在 host 與 sandbox 內都正確解析到同目錄的 busybox。
+# 注意：(1) --list 會含 "busybox" 自己，要跳過否則 ln 自連報錯；
+#       (2) 用 if 而非 `[ ] && continue`，後者在條件為假時回非零會被 set -e 誤殺。
+( cd "$ROOT/bin" && for applet in $(./busybox --list); do
+    if [ "$applet" != "busybox" ]; then ln -sf busybox "$applet"; fi
+  done )
 
 # 最小 /etc 設定，讓沙盒內 sh / id / hostname 等命令運作不會炸
 cat > "$ROOT/etc/passwd" <<'EOF'

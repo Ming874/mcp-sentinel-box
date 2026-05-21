@@ -89,13 +89,34 @@ fn main() -> Result<()> {
     };
 
     // 6) seccomp notification 事件迴圈
+    //
+    // 為什麼要先 poll 再 recv：直接 blocking ioctl(RECV) 在「sandbox 沒觸發任何
+    // NOTIFY 就結束」（例如 hello 只有 write/execve）時，不一定會被喚醒 → monitor
+    // 卡死、parent 等不到它。改用 poll：sandbox 全部行程結束時 kernel 對 listener fd
+    // 回 POLLHUP，monitor 即可乾淨退出（seccomp_unotify(2) 行為）。
     info!("進入 seccomp 事件迴圈");
     loop {
+        let mut pfd = libc::pollfd { fd: notify_fd, events: libc::POLLIN, revents: 0 };
+        let pr = unsafe { libc::poll(&mut pfd as *mut libc::pollfd, 1, 1000) };
+        if pr < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.raw_os_error() == Some(libc::EINTR) { continue; } // 被訊號打斷，重試
+            debug!(?e, "poll 失敗，離開事件迴圈");
+            break;
+        }
+        if pr == 0 { continue; } // 1 秒 timeout，回頭再 poll（順便給機會偵測 sandbox 結束）
+        if pfd.revents & libc::POLLIN == 0 {
+            // 被喚醒卻沒有可讀資料 = POLLHUP/POLLERR/POLLNVAL：
+            // filter owner（sandbox 內所有行程）已結束，沒有更多 syscall 會進來。
+            debug!(revents = pfd.revents, "notify_fd 掛斷，sandbox 已結束，離開事件迴圈");
+            break;
+        }
+
         let notif = match seccomp::recv(notify_fd) {
             Ok(n) => n,
             Err(e) => {
-                // notify_fd 在 sandbox child 結束後會被 kernel close → ioctl 回 EINTR/ENOENT
-                debug!(?e, "notify_fd 收訊結束（推測 sandbox child 已退出）");
+                // notify_fd 在 sandbox 結束後會被 kernel close → ioctl 回 EINTR/ENOENT
+                debug!(?e, "notify_fd 收訊結束（推測 sandbox 已退出）");
                 break;
             }
         };

@@ -101,7 +101,13 @@ static int child_entry(void *arg) {
         _exit(1);
     }
 
-    /* Step i: 透過 sv[0] 把 notify_fd 傳給 monitor */
+    /* Step i: 透過 sv[0] 把 notify_fd 傳給 monitor
+     *
+     * 重要 invariant：這裡用 sendmsg(SCM_RIGHTS) 傳 fd，而此時 seccomp filter
+     * 已生效。因此 profile 內【絕對不能】把 sendmsg 設成 NOTIFY，否則 child 自己的
+     * 這個 sendmsg 會被自己的 filter 攔住、等 monitor 回應，但 monitor 還在等收這個
+     * fd → 互鎖（見 seccomp_unotify(2) 對 bootstrap syscall 的警告，及 profiles/*.json）。
+     * 網路偵測改攔 socket/connect/bind/listen/accept 即可，不需攔 sendmsg。 */
     if (rt->ipc_sock_child >= 0) {
         if (sb_ipc_send_fd(rt->ipc_sock_child, notify_fd, "NOTIFY_FD") != SB_OK) {
             sb_log_err("child: 傳遞 notify_fd 失敗");

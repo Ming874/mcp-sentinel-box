@@ -81,8 +81,11 @@ RUN mkdir -p \
         /srv/rootfs/etc /srv/rootfs/proc /srv/rootfs/sys \
         /srv/rootfs/dev /srv/rootfs/tmp /srv/rootfs/var/log \
     && cp /bin/busybox /srv/rootfs/bin/busybox \
-    && /srv/rootfs/bin/busybox --install -s /srv/rootfs/bin \
+    && cd /srv/rootfs/bin \
+    && for applet in $(./busybox --list); do [ "$applet" = busybox ] || ln -sf busybox "$applet"; done \
     && chmod 1777 /srv/rootfs/tmp
+# 注意：用相對符號連結 (sh->busybox)，不可用 `busybox --install -s`。
+# 後者建絕對連結指向 /srv/rootfs/bin/busybox，sandbox pivot_root 後該路徑不存在 → execvp ENOENT。
 
 # 建立非 root 執行 user（sentinelbox 本體透過 User Namespace 在內部 map root）
 RUN groupadd -r sentinel && useradd -r -g sentinel -d /var/lib/sentinelbox -s /bin/bash sentinel

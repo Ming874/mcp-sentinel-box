@@ -7,7 +7,6 @@
   "syscall_rules": [
     { "name": "connect",        "action": "NOTIFY" },
     { "name": "bind",           "action": "NOTIFY" },
-    { "name": "sendto",         "action": "NOTIFY" },
 
     { "name": "ptrace",         "action": "KILL"   },
     { "name": "mount",          "action": "KILL"   },

@@ -4,20 +4,15 @@
 
   "default_action": "ALLOW",
 
+  "_note_network": "只攔『建立連線』類 syscall (socket/connect/bind/listen/accept)。刻意不攔 sendmsg/recvmsg/sendto/recvfrom：(1) 它們是已開啟 fd 上的資料傳輸，程式一定先經過 socket()+connect() 才能用，攔前者就已封死網路；(2) 更關鍵——sandbox child 安裝 seccomp 後是用 sendmsg(SCM_RIGHTS) 把 notify_fd 傳給 monitor，若 sendmsg 設 NOTIFY 會被自己的 filter 攔住、與 monitor 互鎖 (見 seccomp_unotify(2) 對 bootstrap syscall 的警告)。",
+
   "syscall_rules": [
     { "name": "socket",         "action": "NOTIFY" },
-    { "name": "socketpair",     "action": "NOTIFY" },
     { "name": "connect",        "action": "NOTIFY" },
     { "name": "bind",           "action": "NOTIFY" },
     { "name": "listen",         "action": "NOTIFY" },
     { "name": "accept",         "action": "NOTIFY" },
     { "name": "accept4",        "action": "NOTIFY" },
-    { "name": "sendto",         "action": "NOTIFY" },
-    { "name": "recvfrom",       "action": "NOTIFY" },
-    { "name": "sendmsg",        "action": "NOTIFY" },
-    { "name": "recvmsg",        "action": "NOTIFY" },
-    { "name": "sendmmsg",       "action": "NOTIFY" },
-    { "name": "recvmmsg",       "action": "NOTIFY" },
 
     { "name": "ptrace",         "action": "KILL"   },
     { "name": "mount",          "action": "KILL"   },
