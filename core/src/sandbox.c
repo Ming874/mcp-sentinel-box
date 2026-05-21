@@ -80,10 +80,11 @@ static int child_entry(void *arg) {
         _exit(1);
     }
 
-    /* Step d: 掛新 /proc，確保沙盒內看到的是自己的 PID namespace */
+    /* Step d: 驗證 /proc（實際掛載已在 sb_ofs_setup() 於 pivot_root 前完成）。
+     * 非致命：巢狀環境若連 rbind 都失敗，不需要 /proc 的程式（echo / nc 等）
+     * 仍能正常執行，不該因此整個沙盒中止。 */
     if (sb_ofs_mount_proc() != SB_OK) {
-        sb_log_err("child: mount /proc 失敗");
-        _exit(1);
+        sb_log_warn("child: /proc 不可用，繼續執行（不依賴 /proc 的程式仍可跑）");
     }
 
     /* Step e: 設定 hostname 純視覺效果 */

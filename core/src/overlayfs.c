@@ -37,6 +37,43 @@ static int pivot_root_sys(const char *new_root, const char *put_old) {
     return (int)syscall(SYS_pivot_root, new_root, put_old);
 }
 
+/* 把 proc 掛到指定 target。
+ *
+ * 為什麼要這個 helper（巢狀容器的核心坑）：
+ *   在巢狀環境（sentinelbox 跑在 Docker container 內）裡，外層已對 /proc 做了
+ *   「masked overmounts」（把 /proc/kcore、/proc/keys… 用 locked mount 蓋掉）。
+ *   kernel 的 mount_too_revealing() 會檢查：在 user namespace 內掛 fresh procfs，
+ *   不得「露出」比外層 locked mount 更多的內容。fresh proc 沒有那些遮罩
+ *   → 被判定 reveal too much → EPERM。
+ *
+ * 解法（兩段式，與 runc / bubblewrap 思路一致）：
+ *   1. 先試 fresh procfs：非巢狀 / privileged 無遮罩時成功，沙盒看到「自己的」
+ *      PID namespace（PID 1 = 沙盒 init），最乾淨。
+ *   2. 失敗則退化成 rbind 現有 /proc：把外層 proc 連同遮罩整棵搬過來，
+ *      巢狀容器一定能過。代價是沙盒看到外層 PID（已知取捨，不影響執行）。
+ */
+static int sb__mount_proc_at(const char *target) {
+    /* target 必須存在 */
+    if (mkdir(target, 0555) != 0 && errno != EEXIST) {
+        sb_log_warn("mkdir(%s) 失敗: %s", target, strerror(errno));
+    }
+    /* 嘗試 1：fresh procfs（新 PID namespace 視角） */
+    if (mount("proc", target, "proc",
+              MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) == 0) {
+        sb_log_info("proc 掛載成功 (fresh, 新 PID namespace 視角) -> %s", target);
+        return SB_OK;
+    }
+    int e_fresh = errno;
+    /* 嘗試 2：rbind 現有 /proc（巢狀容器 fallback） */
+    if (mount("/proc", target, NULL, MS_BIND | MS_REC, NULL) == 0) {
+        sb_log_warn("fresh proc 掛載失敗(%s)，改用 rbind /proc"
+                    "（沙盒會看到外層 PID，巢狀容器的已知取捨）", strerror(e_fresh));
+        return SB_OK;
+    }
+    sb_log_err("proc 掛載失敗：fresh=%s, rbind=%s", strerror(e_fresh), strerror(errno));
+    return SB_ERR_MOUNT;
+}
+
 /* 在 mount namespace 內把整個 / 標為 private propagation，
  * 防止 sandbox 內的 mount 動作洩漏回宿主端。
  * systemd 預設把 / 標成 shared，這步驟省略會造成隔離破口。 */
@@ -93,6 +130,21 @@ int sb_ofs_setup(const char *rootfs) {
     }
     sb_log_info("overlay 掛載完成 -> %s", merged);
 
+    /* 4.5) 關鍵：在 pivot_root「之前」就把 /proc 掛到新 root 的 proc 目錄。
+     *
+     *   為什麼一定要在 pivot_root 前掛：
+     *     - 此時 target (merged/proc) 是乾淨的 overlay 目錄，底下沒有 locked mount，
+     *       fresh procfs 較容易過 mount_too_revealing。
+     *     - 即使 fresh 失敗，rbind 現有 /proc 也還引用得到（pivot_root 後舊 / 會被
+     *       detach，rbind 來源就消失了）。
+     *   pivot_root 後 merged 成為 /，故 merged/proc 即沙盒內的 /proc。
+     *   掛載失敗不致命：不需 /proc 的程式（echo、nc…）照樣能跑。 */
+    char procdir[PATH_MAX];
+    snprintf(procdir, sizeof procdir, "%s/proc", merged);
+    if (sb__mount_proc_at(procdir) != SB_OK) {
+        sb_log_warn("proc 掛載失敗，沙盒仍繼續（需要 /proc 的程式可能異常）");
+    }
+
     /* 5) pivot_root 之前要先 chdir 到新 root，否則 kernel 拒絕 */
     if (chdir(merged) != 0) {
         sb_log_err("chdir(%s) 失敗: %s", merged, strerror(errno));
@@ -129,24 +181,21 @@ int sb_ofs_setup(const char *rootfs) {
     return SB_OK;
 }
 
-/* 在沙盒內掛載 /proc。
- * 因為我們進入了新的 PID namespace，/proc 必須是「新的」proc 掛載，
- * 否則沙盒內看到的 PID 會是宿主的（資訊洩漏）。 */
+/* 驗證 /proc 是否可用（proc 已在 sb_ofs_setup() 於 pivot_root 前掛好）。
+ *
+ * 改成「驗證」而非「重掛」的原因：
+ *   pivot_root 之後若再 mount fresh proc，巢狀環境會再次踩 mount_too_revealing
+ *   而 EPERM。proc 已在前面掛好，這裡只需確認沙盒看得到 /proc/self。
+ *   萬一前面真的沒掛上（極少數環境），最後再用同一個 helper 補掛一次當保險。 */
 int sb_ofs_mount_proc(void) {
-    /* /proc 必須先存在 */
-    if (mkdir("/proc", 0555) != 0 && errno != EEXIST) {
-        sb_log_warn("/proc mkdir: %s", strerror(errno));
+    /* /proc/self/status 讀得到 = proc 已可用 */
+    if (access("/proc/self/status", F_OK) == 0) {
+        sb_log_info("/proc 驗證可用");
+        return SB_OK;
     }
-    if (mount("proc", "/proc", "proc",
-              MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) != 0) {
-        sb_log_err("mount /proc 失敗: %s", strerror(errno));
-        return SB_ERR_MOUNT;
-    }
-    sb_log_info("/proc 已掛載 (PID namespace 視角)");
-
-    /* /dev/null /dev/zero 之類由 lowerdir 提供；
-     * 若沙盒需要新 devtmpfs，可在此擴充。 */
-    return SB_OK;
+    /* 保險：pivot_root 前沒掛成功時，最後嘗試一次（fresh→rbind） */
+    sb_log_warn("/proc 尚不可用，嘗試補掛一次");
+    return sb__mount_proc_at("/proc");
 }
 
 /* 對外：pivot_root 之後若需單獨呼叫的入口（目前已含在 setup 內） */
