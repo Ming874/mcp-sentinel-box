@@ -1,0 +1,30 @@
+# 統一換行：避免 Windows checkout 把腳本 / 原始碼轉成 CRLF。
+# 重點是 shell 腳本——CRLF 會讓 shebang 變成 `#!/usr/bin/env bash\r`，
+# 被 COPY 進 Docker image 後 Linux 找不到 `bash\r` 直接炸 (exit 127)。
+
+# 預設：文字檔自動偵測，工作目錄一律 LF
+* text=auto eol=lf
+
+# 明確鎖 LF（保險）
+*.sh    text eol=lf
+*.c     text eol=lf
+*.h     text eol=lf
+*.rs    text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.1     text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# 二進位：不要做任何 EOL 轉換
+*.png   binary
+*.jpg   binary
+*.pdf   binary
+*.ico   binary
+*.svg   binary
+*.woff  binary
+*.woff2 binary
