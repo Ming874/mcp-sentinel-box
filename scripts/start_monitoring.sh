@@ -1,12 +1,14 @@
 #!/bin/bash
-BASE_DIR=$(pwd)
+# 取得腳本所在目錄的絕對路徑，並指向專案根目錄
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "Starting Node.js Bridge Server on port 3001..."
-cd "$BASE_DIR/server" && npm install && node index.js &
+cd "$PROJECT_ROOT/server" && npm install && node src/index.js &
 BRIDGE_PID=$!
 
 echo "Starting React Dashboard on port 3000..."
-cd "$BASE_DIR/dashboard" && npm install && npm run dev -- --host 0.0.0.0 --port 3000 &
+cd "$PROJECT_ROOT/dashboard" && npm install && npm run dev -- --host 0.0.0.0 --port 3000 &
 UI_PID=$!
 
 echo "Monitoring services started."
