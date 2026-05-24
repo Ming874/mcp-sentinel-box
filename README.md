@@ -27,7 +27,7 @@ SentinelBox adopts a decoupled, multi-layered architecture to ensure stability, 
 
 The system is architected into four distinct layers, bridging the gap between Linux Kernel primitives and LLM reasoning:
 
-### 2.1 Core Isolation Engine (C / Linux Kernel API)
+### 3.1 Core Isolation Engine (C / Linux Kernel API)
 The foundational layer responsible for physical isolation, optimized for high performance and strict security:
 *   **Advanced Virtualization via Namespaces**:
     *   `CLONE_NEWPID`: Isolates the PID tree.
@@ -40,21 +40,21 @@ The foundational layer responsible for physical isolation, optimized for high pe
     *   Strictly caps `cpu.max`, `memory.max`, and `pids.max`.
     *   **Capability Dropping**: Removes all unnecessary Linux capabilities (e.g., `CAP_SYS_ADMIN`, `CAP_NET_RAW`) even for the root user inside the sandbox.
 
-### 2.2 Telemetry & Monitoring Layer (Rust / eBPF)
+### 3.2 Telemetry & Monitoring Layer (Rust / eBPF)
 *   **eBPF & Cgroup v2 Integration**: Uses eBPF hooks and Cgroup v2 controllers to monitor kernel events and resource usage (CPU/Memory/IO) without the overhead of polling `/proc`.
 *   **Zero-Latency Data Streaming**: Data is streamed asynchronously to the monitoring service via high-speed Ring Buffers, providing the raw metrics for the real-time dashboard.
 
-### 2.3 AI Orchestration Layer (MCP Server - Python / TypeScript)
+### 3.3 AI Orchestration Layer (MCP Server - Python / TypeScript)
 *   **Semantic Translator**: An asynchronous bridge that maps `EPERM`, `SIGSYS`, or `OOM-Kill` events into actionable natural language feedback.
 *   **Database Integration (WAL Mode)**: Stores execution history and audit logs in **SQLite** with Write-Ahead Logging enabled, ensuring non-blocking performance during concurrent AI task executions.
 
-### 2.4 Management UI (React / Tailwind)
+### 3.4 Management UI (React / Tailwind)
 *   **Real-time Performance Dashboard**: (Required Implementation) Visualizes per-millisecond execution metrics (CPU/RAM) and real-time syscall interception logs.
 *   **Security Audit Explorer**: Provides a searchable history of AI agent behaviors and security violations, backed by the SQLite audit engine.
 
 ---
 
-## 3. High-Performance Implementation Strategy
+## 4. High-Performance Implementation Strategy
 
 To achieve industrial-grade performance and reduce cross-language overhead, SentinelBox employs the following strategies:
 
@@ -65,7 +65,7 @@ To achieve industrial-grade performance and reduce cross-language overhead, Sent
 
 ---
 
-## 4. The "Semantic Feedback" Innovation
+## 5. The "Semantic Feedback" Innovation
 
 Traditional sandboxes return cryptic exit codes. SentinelBox provides **Actionable Intelligence**:
 
@@ -77,7 +77,7 @@ Traditional sandboxes return cryptic exit codes. SentinelBox provides **Actionab
 
 ---
 
-## 5. Security Model & Profiles
+## 6. Security Model & Profiles
 
 SentinelBox supports pre-defined security templates with dynamic permission negotiation:
 
@@ -87,7 +87,7 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 
 ---
 
-## 6. System Requirements
+## 7. System Requirements
 
 *   **OS**: Linux Kernel 5.15+ (Required for Cgroup v2 and User Notification optimizations).
 *   **Permissions**: Designed for **Rootless** operation via User Namespaces.
@@ -95,7 +95,7 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 
 ---
 
-## 7. Roadmap & Progress
+## 8. Roadmap & Progress
 
 | Phase | Milestone | Core Technologies | Status |
 | :--- | :--- | :--- | :--- |
@@ -107,70 +107,70 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 
 ---
 
-## 8. Getting Started & Complete Startup Guide
+## 9. Getting Started & Complete Startup Guide
 
-SentinelBox 是一個多層架構系統。要獲得完整的體驗（包含語意回饋與視覺化即時圖表），請遵循以下順序啟動服務。
+SentinelBox is a multi-layered system. To experience the full features (including semantic feedback and real-time visualization), follow this sequence to start the services.
 
-### 8.1 步驟一：環境初始化
-無論您是在實體 Linux 或 Docker 環境，首先都需要編譯核心引擎 (C) 與安全哨兵 (Rust)。
+### 9.1 Step 1: Environment Initialization
+Whether you are on a native Linux host or in a Docker environment, you first need to compile the Core engine (C) and the Security Sentinel (Rust).
 ```bash
 bash scripts/provision.sh
 ```
-*(此腳本會自動安裝依賴、編譯並建立輕量級的 busybox rootfs。)*
+*(This script automatically installs dependencies, compiles the code, and sets up a lightweight busybox rootfs.)*
 
-### 8.2 步驟二：啟動即時監控面板 (Dashboard & Bridge)
-在執行沙盒之前，請先啟動資料橋接器與前端 React 面板，以便接收即時數據。
-我們提供了一鍵啟動腳本：
+### 9.2 Step 2: Start the Monitoring Panel (Dashboard & Bridge)
+Before running the sandbox, start the data bridge and the React dashboard to receive real-time metrics.
+We provide a one-click startup script:
 ```bash
-./start_monitoring.sh
+./scripts/start_monitoring.sh
 ```
-啟動後，請開啟瀏覽器訪問 `http://localhost:3000`。
-*(此腳本會在背景同時執行 Node.js Bridge (Port 3001) 與 Vite Dev Server (Port 3000)，並自動連接 SQLite 資料庫。若遇到 Port 被佔用，腳本會嘗試自動清理僵屍進程。)*
+Once started, visit `http://localhost:3000` in your browser.
+*(This script runs the Node.js Bridge (Port 3001) and Vite Dev Server (Port 3000) in the background and automatically connects to the SQLite database. If ports are occupied, the script attempts to clean up ghost processes.)*
 
-### 8.3 步驟三：執行沙盒 (生成真實數據)
-請開啟**另一個全新的終端機視窗**，執行以下指令以觸發沙盒執行，並觀察網頁面板的即時變化：
+### 9.3 Step 3: Execute the Sandbox (Generate Real Data)
+Open **another new terminal window** and run the following commands to trigger sandbox execution and observe real-time changes on the dashboard:
 
-*   **產生高 CPU 負載（測試圖表跳動）**：
+*   **Generate High CPU Load (Test Chart Spikes)**:
     ```bash
     bash scripts/run.sh -- /bin/sh -c "while true; do let x=1+1; done"
     ```
-*   **觸發網路安全違規（測試語意攔截）**：
+*   **Trigger Network Security Violation (Test Semantic Interception)**:
     ```bash
     bash scripts/run.sh -- /bin/sh -c "nc -w1 google.com 80"
     ```
 
 ---
 
-## 9. 環境差異與常見問題排解 (Troubleshooting)
+## 10. Environmental Differences & Troubleshooting
 
-SentinelBox 深度依賴 Linux Kernel 的底層機制。您在不同環境下執行時，會遇到不同的權限限制，這**並非系統 Bug，而是作業系統架構的正常保護機制**。
+SentinelBox deeply relies on low-level Linux Kernel mechanisms. When running in different environments, you may encounter various permission restrictions. These are **not system bugs, but normal protection mechanisms of the operating system architecture**.
 
-### ⚠️ 常見錯誤 1：Cgroup 建立失敗 / Permission denied
-當您執行 `run.sh` 時，可能會看到以下警告：
-> `[ERR] 建立 cgroup 失敗 /sys/fs/cgroup/sentinelbox.XXXX: Read-only file system` (或 Permission denied)
-> `[WARN] cgroup 建立失敗，繼續執行但無資源限制`
+### ⚠️ Common Error 1: Cgroup Creation Failed / Permission denied
+When running `run.sh`, you might see the following warning:
+> `[ERR] Failed to create cgroup /sys/fs/cgroup/sentinelbox.XXXX: Read-only file system` (or Permission denied)
+> `[WARN] Cgroup creation failed, continuing without resource limits`
 
-*   **發生原因**：如果您是在 **Docker 容器、VS Code Dev Containers、或某些 WSL2 設定下**執行，系統預設會「鎖死」宿主機的 Cgroup 樹，禁止容器內部的普通應用程式私自建立資源控制群組 (Cgroup v2 Delegation 失敗)。
-*   **系統應對方式 (自動 Fallback)**：SentinelBox 具備強健的**優雅降級 (Graceful Degradation) 機制**。當底層 Rust Monitor 發現無法讀取專屬的沙盒 Cgroup 數據時，它會**自動 Fallback 去讀取宿主機的全域系統資源**（`/proc/stat` 與 `/proc/meminfo`）。因此，即便出現此警告，您的 Dashboard 依然會有數據跳動，只是顯示的會是「整台機器」的負載，而非「沙盒專屬」的負載。
-*   **如何真正解決 (獲得精準沙盒限制)**：
-    *   **解法 A (最快)**：在原生 Linux 機構下，直接使用 `sudo` 執行沙盒：
+*   **Cause**: If you are running in **Docker containers, VS Code Dev Containers, or certain WSL2 configurations**, the system defaults to "locking" the host's Cgroup tree, preventing unprivileged applications within the container from creating their own resource control groups (Cgroup v2 Delegation failure).
+*   **System Response (Automatic Fallback)**: SentinelBox features a robust **Graceful Degradation mechanism**. When the underlying Rust Monitor detects that it cannot read sandboxed Cgroup data, it **automatically falls back to reading global system resources** (`/proc/stat` and `/proc/meminfo`). Therefore, even with this warning, your Dashboard will still show data spikes, though it will reflect the "whole machine" load rather than "sandbox-specific" load.
+*   **How to Truly Resolve (Obtain Precise Sandbox Limits)**:
+    *   **Solution A (Fastest)**: On a native Linux host, use `sudo` to run the sandbox:
         `sudo bash scripts/run.sh -- /bin/sh -c "echo hello"`
-    *   **解法 B (Rootless)**：在原生 Linux 機構下，執行 `sudo bash scripts/setup_cgroup.sh` 完成 systemd user delegation。
+    *   **Solution B (Rootless)**: On a native Linux host, run `sudo bash scripts/setup_cgroup.sh` to complete systemd user delegation.
 
-### ⚠️ 常見錯誤 2：database disk image is malformed
-*   **發生原因**：系統使用 SQLite 的 WAL (Write-Ahead Logging) 模式以支援高併發讀寫。如果您在 Docker 容器內寫入，同時在宿主機用 Node.js 讀取，且強制中斷（Kill -9）了某些進程，可能會導致 WAL 索引檔損毀。
-*   **解法**：關閉監控腳本，直接刪除資料庫，讓系統重建。
+### ⚠️ Common Error 2: database disk image is malformed
+*   **Cause**: The system uses SQLite's WAL (Write-Ahead Logging) mode to support high-concurrency read/writes. If you write from a Docker container while reading from the host via Node.js and forcefully terminate (Kill -9) certain processes, the WAL index file might become corrupted.
+*   **Solution**: Close the monitoring scripts, delete the database, and let the system rebuild it.
     ```bash
     rm sentinelbox.db sentinelbox.db-shm sentinelbox.db-wal
     ```
 
-### ⚠️ 常見錯誤 3：Port 3000/3001 Address already in use
-*   **發生原因**：之前的監控面板沒有被正常關閉（可能卡在背景）。
-*   **解法**：`start_monitoring.sh` 已內建清理機制。若仍卡住，可手動執行 `pkill -f "vite"` 與 `pkill -f "node index.js"`。
+### ⚠️ Common Error 3: Port 3000/3001 Address already in use
+*   **Cause**: The previous monitoring panel was not closed properly (possibly stuck in the background).
+*   **Solution**: `start_monitoring.sh` has built-in cleanup mechanisms. If it remains stuck, manually run `pkill -f "vite"` and `pkill -f "node src/index.js"`.
 
 ---
 
-## 10. Required Project Deliverables
+## 11. Required Project Deliverables
 To comply with the UNIX System Programming course requirements, the following documents are maintained:
 *   **`docs/Final_Report.tex`**: Comprehensive 20+ page LaTeX final report analyzing architecture, implementation, and telemetry fallbacks.
 *   **`CONTRIBUTING.md`**: Contribution guidelines, development environment setup, and coding standards.
