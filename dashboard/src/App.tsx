@@ -20,7 +20,6 @@ function App() {
   const [logs, setLogs] = useState<any[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
 
@@ -29,12 +28,7 @@ function App() {
     socketRef.current = io('http://localhost:3001');
 
     socketRef.current.on('connect', () => {
-      setIsConnected(true);
       console.log('Connected to real-time bridge');
-    });
-
-    socketRef.current.on('disconnect', () => {
-      setIsConnected(false);
     });
 
     socketRef.current.on('telemetry', (payload: any) => {
