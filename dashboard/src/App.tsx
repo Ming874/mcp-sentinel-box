@@ -1,83 +1,69 @@
 import { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ShieldAlert, Cpu, MemoryStick, Play, Pause, Trash2, LayoutDashboard, Copy, Check } from 'lucide-react';
+import { io } from 'socket.io-client';
 
 const INITIAL_DATA_LENGTH = 20;
 
-// 隨機漫步演算法：讓數值基於前一次的結果微調，達到平滑變動
-const getNextValue = (current: number, min: number, max: number, maxDelta: number) => {
-  const delta = (Math.random() - 0.5) * maxDelta;
-  return Math.max(min, Math.min(max, current + delta));
-};
-
 const generateInitialData = () => {
-  let lastCpu = 25;
-  let lastMem = 45;
   return Array.from({ length: INITIAL_DATA_LENGTH }, (_, i) => {
-    lastCpu = getNextValue(lastCpu, 5, 60, 5);
-    lastMem = getNextValue(lastMem, 30, 90, 8);
     return {
       time: new Date(Date.now() - (INITIAL_DATA_LENGTH - i) * 1000).toLocaleTimeString(),
-      cpu: lastCpu,
-      memory: lastMem,
+      cpu: 0,
+      memory: 0,
     };
   });
 };
 
-const initialLogs = [
-  { id: 1, time: new Date(Date.now() - 15000).toLocaleTimeString(), type: 'Violation', signal: 'SIGSYS', syscall: 'socket', path: '', message: 'Action Denied: Attempted to perform a restricted network call.' },
-  { id: 2, time: new Date(Date.now() - 5000).toLocaleTimeString(), type: 'Warning', signal: 'OOM_KILL', syscall: 'mmap', path: '', message: 'Resource Exhausted: The process exceeded memory limits.' }
-];
-
-const mockSyscalls = ['open', 'execve', 'ptrace', 'connect', 'kill', 'chmod'];
-const mockSignals = ['EPERM', 'SIGSYS', 'SIGSEGV', 'EACCES'];
-
 function App() {
   const [data, setData] = useState(generateInitialData());
-  const [logs, setLogs] = useState(initialLogs);
+  const [logs, setLogs] = useState<any[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<any>(null);
 
   useEffect(() => {
-    if (isPaused) return;
-    const interval = setInterval(() => {
+    // 建立 Socket 連線
+    socketRef.current = io('http://localhost:3001');
+
+    socketRef.current.on('connect', () => {
+      setIsConnected(true);
+      console.log('Connected to real-time bridge');
+    });
+
+    socketRef.current.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socketRef.current.on('telemetry', (payload: any) => {
       setData((prevData) => {
-        const last = prevData[prevData.length - 1];
         const newData = [...prevData.slice(1)];
-        newData.push({
-          time: new Date().toLocaleTimeString(),
-          cpu: getNextValue(last.cpu, 2, 85, 6),
-          memory: getNextValue(last.memory, 20, 125, 4),
-        });
+        newData.push(payload);
         return newData;
       });
+    });
 
-      if (Math.random() < 0.15) {
-        setLogs(prev => [...prev, {
-          id: Date.now(),
-          time: new Date().toLocaleTimeString(),
-          type: Math.random() > 0.6 ? 'Violation' : 'Warning',
-          signal: mockSignals[Math.floor(Math.random() * mockSignals.length)],
-          syscall: mockSyscalls[Math.floor(Math.random() * mockSyscalls.length)],
-          path: Math.random() > 0.5 ? '/etc/shadow' : '',
-          message: 'Intercepted by Seccomp-BPF filter. Mapping to semantic feedback...'
-        }]);
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isPaused]);
+    socketRef.current.on('security_event', (payload: any) => {
+      setLogs(prev => [...prev, payload]);
+    });
+
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  const currentCpu = data[data.length - 1].cpu;
-  const currentMem = data[data.length - 1].memory;
+  const currentCpu = data[data.length - 1]?.cpu || 0;
+  const currentMem = data[data.length - 1]?.memory || 0;
 
   // 統一色調：CPU 藍色系 (Blue)，Memory 靛青色系 (Indigo)
   const getCpuColor = (val: number) => val > 65 ? 'text-rose-400' : val > 45 ? 'text-amber-400' : 'text-blue-400';
-  const getMemColor = (val: number) => val > 110 ? 'text-rose-400' : val > 90 ? 'text-amber-400' : 'text-indigo-400';
+  const getMemColor = (val: number) => val > 6000 ? 'text-rose-400' : val > 4000 ? 'text-amber-400' : 'text-indigo-400';
 
   const copyToClipboard = (log: typeof logs[0]) => {
     const textToCopy = `[${log.time}] [${log.signal}] Syscall: ${log.syscall} ${log.path ? `(${log.path})` : ''} - ${log.message}`;
@@ -149,7 +135,7 @@ function App() {
                   {currentMem.toFixed(1)} MB
                 </div>
                 <div className="mt-2 w-full bg-neutral-800 rounded-full h-1 overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-1000 ${currentMem > 110 ? 'bg-rose-500' : currentMem > 90 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${(currentMem/128)*100}%` }}></div>
+                  <div className={`h-full rounded-full transition-all duration-1000 ${currentMem > 6000 ? 'bg-rose-500' : currentMem > 4000 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min((currentMem/8192)*100, 100)}%` }}></div>
                 </div>
               </div>
 
@@ -207,7 +193,7 @@ function App() {
                     <LineChart data={data} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
                       <XAxis dataKey="time" stroke="#525252" fontSize={10} tickMargin={8} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#525252" fontSize={10} tickLine={false} axisLine={false} domain={[0, 150]} />
+                      <YAxis stroke="#525252" fontSize={10} tickLine={false} axisLine={false} domain={[0, 'dataMax + 100']} />
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', color: '#f5f5f5', borderRadius: '4px', fontSize: '11px', padding: '6px' }}
                         isAnimationActive={false}
