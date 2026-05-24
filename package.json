@@ -4,13 +4,15 @@
   "private": true,
   "description": "AI Agent Semantic Security Sandbox",
   "scripts": {
-    "install:all": "npm run install:mcp && npm run install:dashboard",
+    "install:all": "npm run install:mcp && npm run install:dashboard && npm run install:server",
     "install:mcp": "cd mcp-server && npm install",
     "install:dashboard": "cd dashboard && npm install",
+    "install:server": "cd server && npm install",
     "build:all": "npm run build:mcp && npm run build:dashboard",
     "build:mcp": "cd mcp-server && npm run build",
     "build:dashboard": "cd dashboard && npm run build",
     "dev:dashboard": "cd dashboard && npm run dev",
-    "dev:mcp": "cd mcp-server && npm run dev"
+    "dev:mcp": "cd mcp-server && npm run dev",
+    "dev:server": "cd server && npm start"
   }
 }

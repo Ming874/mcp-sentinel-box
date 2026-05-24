@@ -5,14 +5,13 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { SemanticTranslator, type TranslationContext } from "./services/translator.js";
-import { z } from "zod";
 
 const translator = new SemanticTranslator();
 
 const server = new Server(
   {
     name: "sentinelbox-mcp-server",
-    version: "1.0.0",
+    version: "1.1.0",
   },
   {
     capabilities: {
@@ -41,6 +40,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "suggest_repair",
+        description: "Suggests a code modification to fix a sandbox security violation.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            syscall: { type: "string", description: "The blocked syscall (e.g., socket, open)." },
+            original_code: { type: "string", description: "The snippet of code that failed." },
+            profile: { type: "string", description: "The active security profile (e.g., strict, datascience)." }
+          },
+          required: ["syscall", "original_code"]
+        }
+      }
     ],
   };
 });
@@ -54,12 +66,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const args = request.params.arguments as TranslationContext;
       const feedback = translator.translate(args);
       return {
-        content: [
-          {
-            type: "text",
-            text: feedback,
-          },
-        ],
+        content: [{ type: "text", text: feedback }],
+      };
+    }
+    case "suggest_repair": {
+      const { syscall, original_code, profile } = request.params.arguments as any;
+      let suggestion = "Analyze the logic to remove the prohibited action.";
+      
+      if (syscall === 'socket' || syscall === 'connect') {
+         suggestion = `The code attempts to access the network. In the '${profile || 'strict'}' profile, networking is disabled. \nRepair Suggestion: Replace network requests with local mock data or read from a pre-mounted dataset in the workspace.`;
+      } else if (syscall === 'open' || syscall === 'openat') {
+         suggestion = `The code attempts to access a restricted filesystem path. \nRepair Suggestion: Only write to the current working directory (/var/lib/sentinelbox or /tmp). Avoid accessing /etc or /sys.`;
+      } else if (syscall === 'execve') {
+         suggestion = `The code attempts to spawn a new process. \nRepair Suggestion: Use built-in language features instead of spawning external shell commands.`;
+      }
+
+      const response = `Based on the blocked syscall '${syscall}', here is the repair strategy:\n${suggestion}\n\nOriginal Code context:\n${original_code}`;
+      
+      return {
+        content: [{ type: "text", text: response }],
       };
     }
     default:
