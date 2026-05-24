@@ -1,4 +1,4 @@
-.TH SENTINELBOX 1 "May 2026" "SentinelBox 1.3" "User Commands"
+.TH SENTINELBOX 1 "May 2026" "SentinelBox 1.4" "User Commands"
 .SH NAME
 sentinelbox \- semantic-aware, rootless sandbox for secure AI code execution
 
@@ -8,76 +8,115 @@ sentinelbox \- semantic-aware, rootless sandbox for secure AI code execution
 
 .SH DESCRIPTION
 .B sentinelbox
-is an advanced isolation engine designed for executing untrusted, AI-generated code. It implements a "Semantic Feedback Loop" using the Model Context Protocol (MCP) to translate raw kernel errors into actionable feedback for LLMs.
+is a specialized isolation engine designed for executing untrusted, AI-generated code. It bridges the "semantic gap" between low-level kernel enforcement and high-level AI reasoning by providing actionable natural-language feedback via the Model Context Protocol (MCP).
 
-The sandbox utilizes a combination of Linux Kernel features:
-.TP
-\(bu 2
-\fBNamespaces\fR: Isolation for PID, Mount, Network, IPC, UTS, and User views.
-.TP
-\(bu 2
-\fBSeccomp User Notification\fR: High-performance syscall interception redirected to a User Space monitor.
-.TP
-\(bu 2
-\fBOverlayFS & tmpfs\fR: Instantaneous environment resets using a RAM-backed writable layer.
-.TP
-\(bu 2
-\fBCgroup v2\fR: Precise resource metering and hard limits for CPU and Memory.
+The sandbox leverages several Linux Kernel subsystems for multi-layered isolation:
+.IP \(bu 2
+\fBNamespaces\fR: Isolates PID, Mount, Network, IPC, UTS, and User views. It effectively "traps" the process in a private environment where it cannot see or interact with the host system.
+.IP \(bu 2
+\fBSeccomp-BPF (User Notification)\fR: Intercepts system calls. While traditional seccomp only kills or returns errors, SentinelBox uses \fISECCOMP_RET_USER_NOTIF\fR to redirect violations to a dedicated monitor process.
+.IP \(bu 2
+\fBOverlayFS & tmpfs\fR: Creates an ephemeral writable layer. Any files written by the sandboxed process are stored in RAM (\fBtmpfs\fR) and destroyed upon exit, ensuring sub-20ms environment resets.
+.IP \(bu 2
+\fBCgroup v2\fR: Implements hard resource caps (CPU, Memory, PIDs).
 
 .SH OPTIONS
 .TP
 .BR \-p ", " \-\-profile=\fINAME\fR
-Apply security constraints from \fIprofiles/NAME.json\fR. Default: \fBstrict\fR.
+Load security constraints from \fIprofiles/NAME.json\fR. Standard profiles:
+.RS
+.IP \fBstrict\fR 12
+Maximum isolation; no network access; minimal whitelist.
+.IP \fBdatascience\fR 12
+High memory limits; specific syscalls for NumPy/Pandas.
+.IP \fBweb\fR 12
+Enables restricted outbound TCP connections.
+.RE
 .TP
 .BR \-D ", " \-\-profile\-dir=\fIDIR\fR
-Directory containing JSON profile definitions. Default: \fI./profiles\fR.
+Directory containing profile JSON files. Default: \fI./profiles\fR.
 .TP
 .BR \-r ", " \-\-rootfs=\fIPATH\fR
-\fBRequired.\fR The base read-only filesystem (lowerdir) for the OverlayFS mount.
+\fBRequired.\fR The read-only base image for the sandbox. Usually a busybox or alpine directory.
 .TP
 .BR \-m ", " \-\-monitor=\fIPATH\fR
-Path to the \fBsentinelbox-monitor\fR binary.
+Path to the \fBsentinelbox-monitor\fR Rust binary.
 .TP
 .BR \-C ", " \-\-cgroup\-parent=\fIPATH\fR
-Specify the parent cgroup node. Recommended for rootless environments.
+Override the parent cgroup node. Vital for rootless environments to point at a delegated user subtree.
 .TP
 .BR \-N ", " \-\-no\-monitor
-Degrade to pure kernel-level enforcement without semantic feedback.
+Bypass the Rust monitor. Syscall actions set to \fBNOTIFY\fR will fall back to returning \fBERRNO (EPERM)\fR.
 .TP
 .BR \-v ", " \-\-verbose
-Enable verbose logging on \fIstderr\fR.
+Enable diagnostic logs on \fIstderr\fR.
+.TP
+.BR \-h ", " \-\-help
+Display help and exit.
 
-.SH ENVIRONMENT VARIABLES
-.TP
-\fBSENTINELBOX_LOG\fR
-Log level for the monitor (\fIerror\fR, \fIwarn\fR, \fIinfo\fR, \fIdebug\fR, \fItrace\fR).
-.TP
-\fBSENTINELBOX_DB\fR
-Path to the SQLite audit database. Default: \fI./sentinelbox.db\fR.
-.TP
-\fBSENTINELBOX_MAPPINGS\fR
-Path to the JSON mapping for semantic feedback.
+.SH COMMAND EXECUTION
+The double-dash (\fB\-\-\fR) separator is \fBmandatory\fR. Everything following the separator is treated as the command to execute inside the sandbox.
 
-.SH EXAMPLES
-.PP
-Execute a basic command in a restricted environment:
-.RS
-.B sentinelbox --rootfs=./rootfs/busybox -- /bin/sh -c "echo Hello"
-.RE
-.PP
-Run a task that triggers a security violation:
-.RS
-.B sentinelbox --profile=strict --rootfs=./rootfs/busybox -- /bin/sh -c "nc example.com 80"
-.RE
+.SH PROFILE JSON FORMAT
+Profiles are structured as follows:
+.TP
+\fBdefault_action\fR (String)
+One of: \fBALLOW\fR, \fBERRNO\fR, \fBNOTIFY\fR, or \fBKILL\fR.
+.TP
+\fBsyscall_rules\fR (Array)
+Objects with: \fIname\fR, \fIaction\fR, and optional \fIerrno\fR.
+.TP
+\fBresources\fR (Object)
+\fImem_limit_bytes\fR (Integer), \fIcpu_max_quota\fR (Integer in microseconds).
+.TP
+\fBnetwork\fR (Object)
+\fIallow_network\fR (Boolean), \fIallow_dns\fR (Boolean).
+
+.SH SECURITY CONSIDERATIONS
+.IP \(bu 2
+\fBRootless Security\fR: SentinelBox uses \fICLONE_NEWUSER\fR. Inside the sandbox, the user appears as \fBroot\fR (UID 0), but on the host, it retains the privileges of the original unprivileged user.
+.IP \(bu 2
+\fBCapabilities\fR: The engine drops all "dangerous" capabilities (e.g., \fBCAP_SYS_ADMIN\fR) before execution.
+.IP \(bu 2
+\fBNetwork Isolation\fR: By default, the network stack is unshared (\fICLONE_NEWNET\fR), leaving the process with only a loopback interface.
+
+.SH INTERNALS: THE FEEDBACK LOOP
+1. The kernel pauses the violating process.
+2. \fBsentinelbox-monitor\fR (Rust) receives the syscall context via \fIioctl\fR.
+3. The event is logged to \fIsentinelbox.db\fR with high-level metadata.
+4. The \fBMCP Server\fR reads the DB and translates the block into natural language for the AI Agent.
+
+.SH EXIT CODES
+.TP
+.B 0
+Command succeeded.
+.TP
+.B 127
+Sandbox setup failed (e.g., namespace creation, mount error).
+.TP
+.B 137
+OOM Kill or SIGKILL termination.
+.TP
+\fB[Other]\fR
+The exit code of the executed command.
+
+.SH FILES
+.TP
+\fIsentinelbox.db\fR
+The SQLite WAL database for audit logs.
+.TP
+\fIprofiles/\fR
+Default directory for security policies.
 
 .SH BUGS
-On some WSL2 or Docker environments, Cgroup creation may fail due to delegation restrictions. SentinelBox will automatically fall back to global host metrics to ensure the dashboard remains functional.
+Cgroup v2 enforcement may fail in nested Docker environments. The system will gracefully fall back to reporting global host telemetry.
 
 .SH SEE ALSO
 .BR seccomp (2),
 .BR unshare (2),
 .BR pivot_root (2),
-.BR cgroups (7)
+.BR cgroups (7),
+.BR overlayfs (5)
 
 .SH AUTHORS
 SentinelBox Team \- UNIX System Programming Final Project (2026)
