@@ -27,52 +27,69 @@ pub fn run(
     stop: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut next_tick = Instant::now() + Duration::from_millis(100);
-    // 算 CPU% 需要兩次取樣的差：cgroup cpu.stat 給的是「累積」微秒，
-    // 故記住上一輪的 cpu_usec 與當下時刻，本輪用 delta_cpu / delta_time 算佔比。
-    let mut prev_cpu_usec: Option<u64> = None;
+    
+    // 追蹤上一次的取樣數據以計算增量
+    let mut prev_cgroup_cpu: Option<u64> = None;
+    let mut prev_sys_cpu: Option<(u64, u64)> = None; // (active, total)
     let mut prev_instant = Instant::now();
-    // 核心數：cpu_pct 要除以核心數才是「佔整台機器」的比例。
-    // 例：12 核用滿 3 核 → 300% / 12 = 25%。取不到時退化為 1（即 per-core 加總值）。
+
+    // 核心數：用於 cgroup 數據正規化
     let num_cores = std::thread::available_parallelism()
         .map(|n| n.get() as f64)
         .unwrap_or(1.0);
+
     while !stop.load(Ordering::Relaxed) {
-        // sleep until next tick；確保固定 10Hz 取樣，不受 DB 寫入時間漂移
         let now = Instant::now();
         if next_tick > now {
             std::thread::sleep(next_tick - now);
         }
         next_tick += Duration::from_millis(100);
 
-        let (mem, cpu) = match cgroup_path.as_deref() {
-            Some(cg) => match read_cgroup(cg) {
-                Ok(v) => v,
-                Err(e) => {
-                    debug!(?e, "cgroup 讀取失敗（可能 sandbox 已結束）");
-                    (0, 0)
-                }
-            },
-            None => (0, 0),
-        };
-
-        // 區間 CPU 使用率 = 期間 CPU 微秒增量 / 實際經過時間 / 核心數 * 100。
-        // 除以核心數後是「佔整台機器」的比例，範圍 0~100（全核滿載才接近 100）。
         let sample_instant = Instant::now();
-        let cpu_pct = match prev_cpu_usec {
-            Some(prev) => {
-                let elapsed_us = sample_instant.duration_since(prev_instant).as_micros() as f64;
-                if elapsed_us > 0.0 {
-                    (cpu.saturating_sub(prev) as f64) / elapsed_us / num_cores * 100.0
-                } else {
-                    0.0
+        let elapsed_us = sample_instant.duration_since(prev_instant).as_micros() as f64;
+        
+        // 1. 嘗試讀取 cgroup 數據 (Sandbox 專屬)
+        let mut mem_bytes = 0;
+        let mut cpu_pct = 0.0;
+        let mut current_cgroup_cpu = 0;
+
+        let mut cgroup_success = false;
+        if let Some(ref cg) = cgroup_path {
+            if let Ok(m) = read_u64_file(Path::new(cg).join("memory.current")) {
+                if let Ok(c) = read_cgroup_cpu(cg) {
+                    mem_bytes = m;
+                    current_cgroup_cpu = c;
+                    
+                    if let Some(prev_c) = prev_cgroup_cpu {
+                        if elapsed_us > 0.0 {
+                            cpu_pct = (c.saturating_sub(prev_c) as f64) / elapsed_us / num_cores * 100.0;
+                        }
+                    }
+                    prev_cgroup_cpu = Some(c);
+                    cgroup_success = true;
                 }
             }
-            None => 0.0, // 第一筆沒有前值可比，記 0
-        };
-        prev_cpu_usec = Some(cpu);
+        }
+
+        // 2. 若 cgroup 失敗或數值為 0，Fallback 到系統全域數據
+        if !cgroup_success || (cpu_pct < 0.01 && mem_bytes == 0) {
+            mem_bytes = parse_sys_meminfo().unwrap_or(0);
+            if let Ok((active, total)) = parse_sys_stat() {
+                if let Some((p_active, p_total)) = prev_sys_cpu {
+                    let d_active = active.saturating_sub(p_active) as f64;
+                    let d_total = total.saturating_sub(p_total) as f64;
+                    if d_total > 0.0 {
+                        cpu_pct = (d_active / d_total) * 100.0;
+                    }
+                }
+                prev_sys_cpu = Some((active, total));
+            }
+        }
+
         prev_instant = sample_instant;
 
-        if let Err(e) = db.lock().unwrap().record_resource_sample(exec_id, mem, cpu, cpu_pct) {
+        // 寫入資料庫
+        if let Err(e) = db.lock().unwrap().record_resource_sample(exec_id, mem_bytes, current_cgroup_cpu, cpu_pct) {
             warn!(?e, "resource_sample 寫入失敗");
         }
     }
@@ -82,7 +99,9 @@ pub fn run(
 /// 對外便利 API：一次讀取 (mem_current_bytes, cpu_total_usec)。
 /// 給 main 結束時印 summary 用。
 pub fn snapshot(cgroup_path: &str) -> Result<(u64, u64)> {
-    read_cgroup(cgroup_path)
+    let mem = read_u64_file(Path::new(cgroup_path).join("memory.current"))?;
+    let cpu = read_cgroup_cpu(cgroup_path)?;
+    Ok((mem, cpu))
 }
 
 /// 讀 memory.peak（kernel ≥ 5.19）；不存在時 fallback 讀 memory.current。
@@ -94,11 +113,47 @@ pub fn read_mem_peak(cg: &str) -> u64 {
         .unwrap_or(0)
 }
 
-/// 讀 memory.current + cpu.stat
-fn read_cgroup(cg: &str) -> Result<(u64, u64)> {
-    let mem = read_u64_file(Path::new(cg).join("memory.current"))?;
-    let cpu = parse_cpu_stat(&std::fs::read_to_string(Path::new(cg).join("cpu.stat"))?)?;
-    Ok((mem, cpu))
+/// 僅讀取 cgroup CPU 使用量 (microseconds)
+fn read_cgroup_cpu(cg: &str) -> Result<u64> {
+    let s = std::fs::read_to_string(Path::new(cg).join("cpu.stat"))?;
+    parse_cpu_stat(&s)
+}
+
+fn parse_sys_meminfo() -> Result<u64> {
+    let s = std::fs::read_to_string("/proc/meminfo")?;
+    let mut total = 0;
+    let mut available = 0;
+    for line in s.lines() {
+        if line.starts_with("MemTotal:") {
+            total = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0);
+        } else if line.starts_with("MemAvailable:") {
+            available = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0);
+        }
+    }
+    // 回傳已使用記憶體 (bytes)
+    Ok((total.saturating_sub(available)) * 1024)
+}
+
+fn parse_sys_stat() -> Result<(u64, u64)> {
+    let s = std::fs::read_to_string("/proc/stat")?;
+    if let Some(line) = s.lines().next() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 8 && parts[0] == "cpu" {
+            let user: u64 = parts[1].parse().unwrap_or(0);
+            let nice: u64 = parts[2].parse().unwrap_or(0);
+            let system: u64 = parts[3].parse().unwrap_or(0);
+            let idle: u64 = parts[4].parse().unwrap_or(0);
+            let iowait: u64 = parts[5].parse().unwrap_or(0);
+            let irq: u64 = parts[6].parse().unwrap_or(0);
+            let softirq: u64 = parts[7].parse().unwrap_or(0);
+            let steal: u64 = parts.get(8).and_then(|v| v.parse().ok()).unwrap_or(0);
+            
+            let active = user + nice + system + irq + softirq + steal;
+            let total = active + idle + iowait;
+            return Ok((active, total));
+        }
+    }
+    Err(anyhow::anyhow!("無法解析 /proc/stat"))
 }
 
 fn read_u64_file(path: PathBuf) -> Result<u64> {
@@ -118,5 +173,6 @@ fn parse_cpu_stat(s: &str) -> Result<u64> {
             return Ok(v.parse::<u64>().unwrap_or(0));
         }
     }
-    Ok(0)
+    Err(anyhow::anyhow!("找不到 usage_usec"))
 }
+
