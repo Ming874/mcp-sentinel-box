@@ -9,36 +9,26 @@ services:
   sandbox:
     build: .
     image: sentinelbox:latest
-    # 沙盒需要 privileged 才能建立 user / pid / net namespace
     privileged: true
-    # private cgroup namespace 讓容器內的 cgroup 操作不污染 host
     cgroup: private
     security_opt:
-      - seccomp=unconfined  # sentinelbox 自己裝 seccomp filter
+      - seccomp=unconfined
       - apparmor=unconfined
     volumes:
-      - sentinelbox-data:/var/lib/sentinelbox
-      # 明確以 rw 掛載 cgroup v2，繞過 Docker Desktop / OrbStack 預設唯讀
+      - ./sentinelbox.db:/var/lib/sentinelbox/audit.db
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
     environment:
       SENTINELBOX_PROFILE: strict
       SENTINELBOX_LOG: info
-    # 預設不帶 CMD，由 docker compose run 傳入
-    # 例: docker compose run --rm sandbox -- /bin/sh -c "echo hi"
 
-  # 快速看 audit log（profiles 標記 → 不會在 docker compose up 自動啟動）
-  # 用法: docker compose run --rm audit
   audit:
     image: sentinelbox:latest
     profiles: ["tools"]
     volumes:
-      - sentinelbox-data:/var/lib/sentinelbox
+      - ./sentinelbox.db:/var/lib/sentinelbox/audit.db
     entrypoint:
       - sqlite3
       - -box
       - /var/lib/sentinelbox/audit.db
       - "SELECT * FROM executions ORDER BY start_ts DESC LIMIT 20;"
 
-volumes:
-  sentinelbox-data:
-    driver: local

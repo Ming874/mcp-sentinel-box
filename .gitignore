@@ -35,7 +35,7 @@ dashboard/*.local
 *.db-shm
 sentinelbox.db*
 
-# rootfs 內容（由 scripts/setup_rootfs.sh 產生，不該入版控）
+# rootfs 內容（由 scripts/setup_rootfs.sh 產生）
 rootfs/busybox/
 
 # 編輯器
@@ -49,8 +49,15 @@ rootfs/busybox/
 .DS_Store
 Thumbs.db
 
-# Claude Code 本地指令（個人設定，不入版控）
+# Claude Code 本地指令
 .claude/
 CLAUDE.md
-Plan.md
-Report.md
+
+# LaTeX 生成的中間檔
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz

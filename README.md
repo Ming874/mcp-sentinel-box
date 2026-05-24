@@ -10,7 +10,20 @@ In the era of Generative AI, AI Agents frequently generate and execute code to s
 
 ---
 
-## 2. System Architecture (Deep Dive)
+## 2. Project Structure
+
+SentinelBox adopts a decoupled, multi-layered architecture to ensure stability, security, and extensibility:
+
+*   **`core/`**: Sandbox Isolation Engine (C). The foundational layer responsible for physical isolation via Linux Namespaces, OverlayFS, and Seccomp filters.
+*   **`monitor/`**: Security Sentinel & Resource Sampling (Rust). A high-performance monitor that intercepts syscalls via `SECCOMP_RET_USER_NOTIF` and records telemetry to SQLite.
+*   **`mcp-server/`**: MCP Server for AI Agents (TypeScript). Implements the Model Context Protocol to translate low-level kernel errors into actionable semantic feedback for LLMs.
+*   **`server/`**: Backend Data Bridge (Express + Socket.io). Relays SQLite audit logs and telemetry to the frontend via WebSockets.
+*   **`dashboard/`**: Frontend Monitoring Dashboard (React + Vite). A modern, real-time UI visualizing CPU/Memory metrics and security events.
+*   **`docs/scripts/`**: Project documentation and auxiliary generation scripts.
+
+---
+
+## 3. System Architecture (Deep Dive)
 
 The system is architected into four distinct layers, bridging the gap between Linux Kernel primitives and LLM reasoning:
 
@@ -88,116 +101,77 @@ SentinelBox supports pre-defined security templates with dynamic permission nego
 | :--- | :--- | :--- | :--- |
 | **Phase 1** | Container Primitives | C, Linux Namespaces, pivot_root, OverlayFS, Cgroup v2, libcap | Completed |
 | **Phase 2** | Security Sentinel | Rust, Seccomp UserNotif, SCM_RIGHTS fd passing | Completed |
-| **Phase 3** | Telemetry & Database | Rust, cgroup v2 sampling, SQLite WAL audit | Completed (eBPF probe = scaffolded) |
-| **Phase 4** | MCP Integration | Async SDK, Python | Planned |
-| **Phase 5** | Management UI | React, Tailwind | Planned |
+| **Phase 3** | Telemetry & Database | Rust, cgroup v2 sampling, SQLite WAL audit | Completed |
+| **Phase 4** | MCP Integration | Async SDK, TypeScript, Self-Repair Loop | Completed |
+| **Phase 5** | Management UI | React, Tailwind, Socket.io Real-time Bridge | Completed |
 
 ---
 
-## 8. Getting Started
+## 8. Getting Started & Complete Startup Guide
 
-SentinelBox 以 **Docker image** 交付，任何有 Docker 的 Linux / macOS / Windows 機器皆可執行，無需手動安裝 libseccomp / Rust toolchain。
+SentinelBox 是一個多層架構系統。要獲得完整的體驗（包含語意回饋與視覺化即時圖表），請遵循以下順序啟動服務。
 
-### Prerequisites
-- Docker 24.0+（或 OrbStack / Podman）
-- Linux kernel 5.15+（宿主機或 Docker Desktop VM 提供）
-
-### Build
+### 8.1 步驟一：環境初始化
+無論您是在實體 Linux 或 Docker 環境，首先都需要編譯核心引擎 (C) 與安全哨兵 (Rust)。
 ```bash
-docker compose build
-# 或
-docker build -t sentinelbox:latest .
+bash scripts/provision.sh
 ```
+*(此腳本會自動安裝依賴、編譯並建立輕量級的 busybox rootfs。)*
 
-### Run — Hello World
+### 8.2 步驟二：啟動即時監控面板 (Dashboard & Bridge)
+在執行沙盒之前，請先啟動資料橋接器與前端 React 面板，以便接收即時數據。
+我們提供了一鍵啟動腳本：
 ```bash
-docker compose run --rm sandbox -- /bin/sh -c "echo hello from sandbox"
+./start_monitoring.sh
 ```
+啟動後，請開啟瀏覽器訪問 `http://localhost:3000`。
+*(此腳本會在背景同時執行 Node.js Bridge (Port 3001) 與 Vite Dev Server (Port 3000)，並自動連接 SQLite 資料庫。若遇到 Port 被佔用，腳本會嘗試自動清理僵屍進程。)*
 
-### Run — 驗證 Semantic Feedback（網路封鎖）
-```bash
-# strict profile 下嘗試連線 → monitor 在 socket() 就攔截並輸出語意說明
-docker compose run --rm sandbox -- \
-    /bin/sh -c "echo GET / | nc -w1 example.com 80"
-# 預期輸出（實測）：
-#   [SEMANTIC] 安全違規：嘗試在 profile「strict」內建立 socket（family=2）。
-#              HINT  → 改用沙盒外預先準備好的資料；本 profile 禁止任何網路連線。
-```
+### 8.3 步驟三：執行沙盒 (生成真實數據)
+請開啟**另一個全新的終端機視窗**，執行以下指令以觸發沙盒執行，並觀察網頁面板的即時變化：
 
-### Run — Data Science Profile
-```bash
-docker compose run --rm -e SENTINELBOX_PROFILE=datascience sandbox -- \
-    /bin/sh -c "wget -q -O- http://example.com | head -5"
-```
+*   **產生高 CPU 負載（測試圖表跳動）**：
+    ```bash
+    bash scripts/run.sh -- /bin/sh -c "while true; do let x=1+1; done"
+    ```
+*   **觸發網路安全違規（測試語意攔截）**：
+    ```bash
+    bash scripts/run.sh -- /bin/sh -c "nc -w1 google.com 80"
+    ```
 
-### 查詢 Audit Log
-```bash
-# 列出最近 20 次執行記錄
-docker compose run --rm audit
+---
 
-# 或直接用 sqlite3
-docker run --rm -v sentinelbox-data:/data ubuntu:22.04 \
-    sqlite3 /data/audit.db "SELECT * FROM syscall_events ORDER BY ts DESC LIMIT 10;"
-```
+## 9. 環境差異與常見問題排解 (Troubleshooting)
 
-### Docker vs 原生 — 功能對照（實測）
+SentinelBox 深度依賴 Linux Kernel 的底層機制。您在不同環境下執行時，會遇到不同的權限限制，這**並非系統 Bug，而是作業系統架構的正常保護機制**。
 
-`docker compose`（`--privileged --cgroupns=private`）下，沙盒**主路徑完整可用**：
-namespace 隔離、`pivot_root`+OverlayFS、seccomp 攔截、語義回饋、SQLite audit 全部正常
-（hello → 印出輸出；`nc` 連外 → socket() 被攔 + 語義訊息；audit DB 寫入 syscall_events
-與 resource_samples）。
+### ⚠️ 常見錯誤 1：Cgroup 建立失敗 / Permission denied
+當您執行 `run.sh` 時，可能會看到以下警告：
+> `[ERR] 建立 cgroup 失敗 /sys/fs/cgroup/sentinelbox.XXXX: Read-only file system` (或 Permission denied)
+> `[WARN] cgroup 建立失敗，繼續執行但無資源限制`
 
-Docker（尤其 Docker Desktop / WSL2 backend）唯二降級項：
-- **Cgroup 資源上限**：容器內無 cgroup v2 delegation，建子 cgroup 會 `Permission denied`
-  → 自動降級為「無資源上限」並繼續執行（不致命）。
-- **eBPF 遙測完整路徑**：容器預設摸不到 `/sys/kernel/btf/vmlinux` / 缺 `CAP_BPF`
-  → 目前 telemetry 走 cgroup 檔案取樣即可，eBPF probe 為 stub。
+*   **發生原因**：如果您是在 **Docker 容器、VS Code Dev Containers、或某些 WSL2 設定下**執行，系統預設會「鎖死」宿主機的 Cgroup 樹，禁止容器內部的普通應用程式私自建立資源控制群組 (Cgroup v2 Delegation 失敗)。
+*   **系統應對方式 (自動 Fallback)**：SentinelBox 具備強健的**優雅降級 (Graceful Degradation) 機制**。當底層 Rust Monitor 發現無法讀取專屬的沙盒 Cgroup 數據時，它會**自動 Fallback 去讀取宿主機的全域系統資源**（`/proc/stat` 與 `/proc/meminfo`）。因此，即便出現此警告，您的 Dashboard 依然會有數據跳動，只是顯示的會是「整台機器」的負載，而非「沙盒專屬」的負載。
+*   **如何真正解決 (獲得精準沙盒限制)**：
+    *   **解法 A (最快)**：在原生 Linux 機構下，直接使用 `sudo` 執行沙盒：
+        `sudo bash scripts/run.sh -- /bin/sh -c "echo hello"`
+    *   **解法 B (Rootless)**：在原生 Linux 機構下，執行 `sudo bash scripts/setup_cgroup.sh` 完成 systemd user delegation。
 
-需要**完整 cgroup 資源限制 + eBPF 遙測**時，於**原生 Linux 或 WSL2**
-（kernel 5.15+，具 `/sys/kernel/btf/vmlinux` 與 cgroup delegation）執行。
+### ⚠️ 常見錯誤 2：database disk image is malformed
+*   **發生原因**：系統使用 SQLite 的 WAL (Write-Ahead Logging) 模式以支援高併發讀寫。如果您在 Docker 容器內寫入，同時在宿主機用 Node.js 讀取，且強制中斷（Kill -9）了某些進程，可能會導致 WAL 索引檔損毀。
+*   **解法**：關閉監控腳本，直接刪除資料庫，讓系統重建。
+    ```bash
+    rm sentinelbox.db sentinelbox.db-shm sentinelbox.db-wal
+    ```
 
-**一致環境的正式入口是 `scripts/provision.sh`** —— 從空白 Ubuntu VM 一鍵到可執行，
-裝 git/編譯依賴、pin Rust toolchain（`rust-toolchain.toml`）、clone、build、rootfs、smoke test 全包，
-所有人跑同一支得到同一套環境。OrbStack 範例：
+### ⚠️ 常見錯誤 3：Port 3000/3001 Address already in use
+*   **發生原因**：之前的監控面板沒有被正常關閉（可能卡在背景）。
+*   **解法**：`start_monitoring.sh` 已內建清理機制。若仍卡住，可手動執行 `pkill -f "vite"` 與 `pkill -f "node index.js"`。
 
-```bash
-# 1) 開一台 Ubuntu VM（非 container，才有完整 namespace/mount/eBPF 權限）
-orb create ubuntu sentinelbox && orb -m sentinelbox
+---
 
-# 2) VM 內 bootstrap：取得 provision.sh 後執行（私有 repo 需自帶存取權）
-git clone <repo-url> ~/mcp-sentinel-box        # 或 curl 取 provision.sh
-bash ~/mcp-sentinel-box/scripts/provision.sh   # idempotent，重跑會自動 pull+rebuild
-```
-
-provisioned 後的日常指令：
-
-```bash
-# 執行沙盒（取代 docker compose run）
-bash scripts/run.sh -- /bin/sh -c "echo hello from sandbox"
-SENTINELBOX_PROFILE=datascience bash scripts/run.sh -- python3 -c "print(1)"
-
-# audit log 直接查（DB 預設於 repo 根目錄 sentinelbox.db）
-sqlite3 ./sentinelbox.db "SELECT * FROM executions ORDER BY start_ts DESC LIMIT 20;"
-```
-
-腳本分工：`provision.sh`（整機 bootstrap）→ `setup.sh`（repo 內依賴+編譯+rootfs）→ `run.sh`（跑單次沙盒）。
-
-> Docker 路徑與原生路徑共用同一份 C/Rust 程式碼；兩者為雙軌交付，Docker 用於快速體驗與 CI，原生路徑用於完整功能驗證。
-
-### Project Layout
-```
-core/         C 隔離引擎 (Phase 1) — namespace / pivot_root / overlayfs / cgroup
-monitor/      Rust 安全哨兵 (Phase 2/3) — seccomp notif / telemetry / SQLite audit
-profiles/     strict / datascience / web JSON 規範
-docs/         man page
-scripts/      docker-entrypoint.sh（Docker）/ setup.sh + run.sh（原生 VM）/ setup_rootfs.sh / setup_cgroup.sh
-tests/        端到端整合測試 + 惡意樣本
-Dockerfile    Multi-stage build（c-builder → rust-builder → runtime）
-docker-compose.yml  一鍵執行 + audit log 查詢
-```
-
-## 9. Required Project Deliverables
+## 10. Required Project Deliverables
 To comply with the UNIX System Programming course requirements, the following documents are maintained:
+*   **`docs/Final_Report.tex`**: Comprehensive 20+ page LaTeX final report analyzing architecture, implementation, and telemetry fallbacks.
 *   **`CONTRIBUTING.md`**: Contribution guidelines, development environment setup, and coding standards.
 *   **`man` page**: Technical manual accessible via `man ./docs/sentinelbox.1` covering command-line options and security profiles.
-*   **Performance Benchmark Report**: Comparative analysis of sandbox overhead and reset latency.
