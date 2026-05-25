@@ -509,22 +509,36 @@ SentinelBox 依賴 Cgroup v2 (Control Groups) 來對 AI 進程施加硬性的資
 \textbf{測試腳本}：嘗試透過 \texttt{../../../../etc/shadow} 存取宿主機敏感檔案。\\
 \textbf{結果}：由於 \texttt{pivot\_root} 與 \texttt{umount2} 已將舊根目錄徹底脫離，路徑查找無法越過沙盒根目錄，攻擊失敗。
 
-\subsection{7.2 AI 自我修正成功率與效率評估}
-我們進行了一項對照實驗，選取 20 個常見的系統權限相關開發任務（如「實作一個讀取系統 Log 並過濾的腳本」），比較 AI 在不同環境下的表現：
+\subsection{7.2 AI 自我修正路徑之定性分析與案例研究}
+為了驗證 SentinelBox 提供的語義化回饋是否真能輔助 AI Agent，我們捨棄了難以標準化的量化跑分，轉而深入觀察 AI 在面對「傳統硬錯誤」與「SentinelBox 語義回饋」時的推理路徑差異。
 
-\begin{table}[H]
-\centering
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{評估指標} & \textbf{傳統容器 (Errno)} & \textbf{SentinelBox (MCP)} \\ \midrule
-修復成功率 & 35\% & \textbf{92\%} \\
-平均修復次數 (重試) & 4.2 次 & \textbf{1.3 次} \\
-單次修正平均耗時 & 128s (含多次推理) & \textbf{45s} (精準推理) \\ \bottomrule
-\end{tabular}
-\caption{AI 修復能力定量分析表}
-\end{table}
+\subsubsection{觀察案例：惡意網路連線嘗試 (socket 攔截)}
+當 AI Agent 試圖執行一個包含 \texttt{nc -zv google.com 80} 的腳本時：
 
-\textbf{數據分析}：在傳統環境下，AI 常因為無法理解 \texttt{EACCES} 錯誤而陷入不斷加 \texttt{sudo} 的死循環。而在 SentinelBox 語義環境下，AI 能在第一時間得知「目錄唯讀」的政策，進而轉向使用正確的工作目錄。
+\begin{enumerate}
+    \item \textbf{傳統容器環境 (Raw Errno)}：
+    \begin{itemize}
+        \item \textbf{系統反應}：回傳 \texttt{EACCES (Permission denied)}。
+        \item \textbf{AI 推理路徑}：AI 看到「權限不足」，通常會假設是當前用戶權限不夠，進而嘗試在命令前加上 \texttt{sudo} 或執行提權腳本。
+        \item \textbf{結果}：陷入「失敗 $\rightarrow$ 加 sudo $\rightarrow$ 再失敗」的無意義死循環。
+    \end{itemize}
+
+    \item \textbf{SentinelBox + MCP 環境}：
+    \begin{itemize}
+        \item \textbf{系統反應}：SentinelBox 攔截系統調用並記錄，MCP Server 回傳：「偵測到試圖建立網路連線 (socket)。在當前 \texttt{strict} 安全配置文件下，所有外部網路存取已被禁止以防止數據外洩。」
+        \item \textbf{AI 推理路徑}：AI 接收到具備上下文的明確指令，理解到這是「環境政策限制」而非「權限不足」。
+        \item \textbf{結果}：AI 停止重試連網，轉而改用 Mock 數據或調整任務邏輯，成功跳出錯誤循環。
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{語義回饋的核心價值：消除推理歧義}
+透過對比多組測試腳本（包含檔案存取、進程追蹤等），我們發現語義回饋帶來了三個關鍵改變：
+\begin{itemize}
+    \item \textbf{意圖確認}：將生硬的數字代碼轉譯為對系統資源（網路、敏感檔案、計算資源）的具體保護描述。
+    \item \textbf{路徑引導}：在回饋中直接告知「禁止原因」，讓 AI 能在下一次推理中避開死路。
+    \item \textbf{資源節省}：大幅減少了 LLM 進行「盲目嘗試」所需的 Token 消耗與等待時間。
+\end{itemize}
+
 
 \subsection{7.3 高併發性能基準測試 (High Concurrency)}
 為了驗證 Rust Monitor 的高頻率處理能力，我們模擬了大規模部署場景：
