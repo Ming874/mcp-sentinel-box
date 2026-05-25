@@ -3,12 +3,10 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { ShieldAlert, Cpu, MemoryStick, Play, Pause, Trash2, LayoutDashboard, Copy, Check } from 'lucide-react';
 import { io } from 'socket.io-client';
 
-const INITIAL_DATA_LENGTH = 20;
-
-const generateInitialData = () => {
-  return Array.from({ length: INITIAL_DATA_LENGTH }, (_, i) => {
+const generateInitialData = (length: number) => {
+  return Array.from({ length }, (_, i) => {
     return {
-      time: new Date(Date.now() - (INITIAL_DATA_LENGTH - i) * 1000).toLocaleTimeString(),
+      time: new Date(Date.now() - (length - i) * 1000).toLocaleTimeString(),
       cpu: 0,
       memory: 0,
     };
@@ -16,12 +14,32 @@ const generateInitialData = () => {
 };
 
 function App() {
-  const [data, setData] = useState(generateInitialData());
+  const [timeRange, setTimeRange] = useState(20); // Default 20 seconds
+  const [data, setData] = useState(generateInitialData(20));
+  const [totalMem, setTotalMem] = useState(8192); // Default 8GB, will update from server
   const [logs, setLogs] = useState<any[]>([]);
+  const [activeSandboxes, setActiveSandboxes] = useState<any[]>([]);
   const [isPaused, setIsPaused] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
+
+  // 當 timeRange 改變時，調整數據長度
+  useEffect(() => {
+    setData(prev => {
+      if (prev.length > timeRange) return prev.slice(prev.length - timeRange);
+      if (prev.length < timeRange) {
+        const padding = Array.from({ length: timeRange - prev.length }, (_, i) => ({
+          time: new Date(Date.now() - (timeRange - i) * 1000).toLocaleTimeString(),
+          cpu: 0,
+          memory: 0,
+        }));
+        return [...padding, ...prev];
+      }
+      return prev;
+    });
+  }, [timeRange]);
 
   useEffect(() => {
     // 建立 Socket 連線
@@ -32,15 +50,19 @@ function App() {
     });
 
     socketRef.current.on('telemetry', (payload: any) => {
+      if (payload.totalMemory) setTotalMem(payload.totalMemory);
       setData((prevData) => {
-        const newData = [...prevData.slice(1)];
-        newData.push(payload);
-        return newData;
+        const newData = [...prevData, payload];
+        return newData.slice(-timeRange);
       });
     });
 
     socketRef.current.on('security_event', (payload: any) => {
       setLogs(prev => [...prev, payload]);
+    });
+
+    socketRef.current.on('active_sandboxes', (payload: any[]) => {
+      setActiveSandboxes(payload);
     });
 
     return () => {
@@ -57,7 +79,7 @@ function App() {
 
   // 統一色調：CPU 藍色系 (Blue)，Memory 靛青色系 (Indigo)
   const getCpuColor = (val: number) => val > 65 ? 'text-rose-400' : val > 45 ? 'text-amber-400' : 'text-blue-400';
-  const getMemColor = (val: number) => val > 6000 ? 'text-rose-400' : val > 4000 ? 'text-amber-400' : 'text-indigo-400';
+  const getMemColor = (val: number) => val > (totalMem * 0.8) ? 'text-rose-400' : val > (totalMem * 0.6) ? 'text-amber-400' : 'text-indigo-400';
 
   const copyToClipboard = (log: typeof logs[0]) => {
     const textToCopy = `[${log.time}] [${log.signal}] Syscall: ${log.syscall} ${log.path ? `(${log.path})` : ''} - ${log.message}`;
@@ -65,6 +87,22 @@ function App() {
       setCopiedId(log.id);
       setTimeout(() => setCopiedId(null), 2000);
     });
+  };
+
+  const exportLogs = () => {
+    const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sentinelbox-logs-${new Date().toISOString()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const killSandbox = (pid: number, id: number) => {
+    if (confirm(`Are you sure you want to kill sandbox (PID: ${pid})?`)) {
+      socketRef.current.emit('kill_sandbox', { pid, id });
+    }
   };
 
   return (
@@ -82,6 +120,24 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-4 mt-2 md:mt-0">
+             <div className="flex items-center gap-2 bg-neutral-900 border border-white/5 rounded-lg px-2 py-1">
+                <span className="text-[10px] font-bold text-neutral-500 uppercase">Range</span>
+                <select 
+                  value={timeRange} 
+                  onChange={(e) => setTimeRange(Number(e.target.value))}
+                  className="bg-transparent text-xs text-neutral-300 focus:outline-none cursor-pointer"
+                >
+                  <option value={20}>20s</option>
+                  <option value={60}>1m</option>
+                  <option value={300}>5m</option>
+                </select>
+             </div>
+             <button 
+              onClick={exportLogs}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 transition-all border border-white/5 active:scale-95 text-xs font-medium"
+            >
+              Export JSON
+            </button>
              <button 
               onClick={() => setIsPaused(!isPaused)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 transition-all border border-white/5 active:scale-95 text-xs font-medium"
@@ -113,7 +169,7 @@ function App() {
                   <Cpu className="text-blue-400/80 w-4 h-4" />
                 </div>
                 <div className={`text-2xl font-bold tracking-tight ${getCpuColor(currentCpu)}`}>
-                  {currentCpu.toFixed(1)}%
+                  {currentCpu.toFixed(3)}%
                 </div>
                 <div className="mt-2 w-full bg-neutral-800 rounded-full h-1 overflow-hidden">
                   <div className={`h-full rounded-full transition-all duration-1000 ${currentCpu > 65 ? 'bg-rose-500' : currentCpu > 45 ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${currentCpu}%` }}></div>
@@ -129,7 +185,7 @@ function App() {
                   {currentMem.toFixed(1)} MB
                 </div>
                 <div className="mt-2 w-full bg-neutral-800 rounded-full h-1 overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-1000 ${currentMem > 6000 ? 'bg-rose-500' : currentMem > 4000 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min((currentMem/8192)*100, 100)}%` }}></div>
+                  <div className={`h-full rounded-full transition-all duration-1000 ${currentMem > (totalMem * 0.8) ? 'bg-rose-500' : currentMem > (totalMem * 0.6) ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min((currentMem/totalMem)*100, 100)}%` }}></div>
                 </div>
               </div>
 
@@ -138,10 +194,32 @@ function App() {
                   <h3 className="text-xs font-bold text-neutral-500">Active Sandboxes</h3>
                   <LayoutDashboard className="text-blue-400/80 w-4 h-4" />
                 </div>
-                <div className="text-2xl font-bold tracking-tight text-white">1</div>
-                <div className="mt-2 flex gap-1.5">
-                  <span className="px-1.5 py-0.5 rounded-[4px] text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">Strict Profile</span>
-                  <span className="px-1.5 py-0.5 rounded-[4px] text-[10px] font-medium bg-white/5 text-neutral-400 border border-white/10">Rootless</span>
+                <div className="text-2xl font-bold tracking-tight text-white">{activeSandboxes.length}</div>
+                <div className="mt-2 space-y-2 max-h-[100px] overflow-y-auto custom-scrollbar">
+                  {activeSandboxes.length === 0 ? (
+                    <div className="mt-2 flex gap-1.5">
+                      <span className="px-1.5 py-0.5 rounded-[4px] text-[10px] font-medium bg-white/5 text-neutral-400 border border-white/10">IDLE</span>
+                    </div>
+                  ) : (
+                    activeSandboxes.map(sb => (
+                      <div key={sb.id} className="flex items-center justify-between group/sb bg-white/5 p-1.5 rounded-md border border-white/5">
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-blue-400">PID {sb.pid}</span>
+                            <span className="px-1 py-0.5 rounded-[3px] text-[8px] bg-blue-500/10 text-blue-400 border border-blue-500/10">{sb.profile}</span>
+                          </div>
+                          <span className="text-[9px] text-neutral-500 truncate w-full italic" title={sb.command}>{sb.command || 'unknown'}</span>
+                        </div>
+                        <button 
+                          onClick={() => killSandbox(sb.pid, sb.id)}
+                          className="p-1 rounded bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all ml-2"
+                          title="Kill Sandbox"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -166,6 +244,7 @@ function App() {
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', color: '#f5f5f5', borderRadius: '4px', fontSize: '11px', padding: '6px' }}
                         isAnimationActive={false}
+                        formatter={(value: any) => [typeof value === 'number' ? value.toFixed(3) : value, 'CPU (%)']}
                       />
                       <Line type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: '#3b82f6', strokeWidth: 0 }} name="CPU" isAnimationActive={false} />
                     </LineChart>
@@ -187,10 +266,11 @@ function App() {
                     <LineChart data={data} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" vertical={false} />
                       <XAxis dataKey="time" stroke="#525252" fontSize={10} tickMargin={8} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#525252" fontSize={10} tickLine={false} axisLine={false} domain={[0, 'dataMax + 100']} />
+                      <YAxis stroke="#525252" fontSize={10} tickLine={false} axisLine={false} domain={[0, totalMem]} />
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', color: '#f5f5f5', borderRadius: '4px', fontSize: '11px', padding: '6px' }}
                         isAnimationActive={false}
+                        formatter={(value: any) => [typeof value === 'number' ? `${value.toFixed(1)} MB (${((value / totalMem) * 100).toFixed(1)}%)` : value, 'Memory']}
                       />
                       <Line type="monotone" dataKey="memory" stroke="#6366f1" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: '#6366f1', strokeWidth: 0 }} name="Memory" isAnimationActive={false} />
                     </LineChart>
@@ -202,18 +282,27 @@ function App() {
 
           {/* Right Column: Security Logs (Fixed height container allowing internal scrolling) */}
           <div className="lg:col-span-1 bg-neutral-900/40 rounded-xl border border-white/5 shadow-sm flex flex-col h-[500px] lg:h-[752px] overflow-hidden">
-            <div className="p-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 bg-neutral-900/20 backdrop-blur-md">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-rose-500" />
-                <h3 className="text-xs font-bold text-white">Security Events</h3>
+            <div className="p-4 border-b border-white/5 flex flex-col gap-3 flex-shrink-0 bg-neutral-900/20 backdrop-blur-md">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-500" />
+                  <h3 className="text-xs font-bold text-white">Security Events</h3>
+                </div>
+                <button 
+                  onClick={() => setLogs([])}
+                  className="p-1.5 rounded-md text-neutral-500 hover:bg-rose-500/10 hover:text-rose-400 transition-colors"
+                  title="Clear Records"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <button 
-                onClick={() => setLogs([])}
-                className="p-1.5 rounded-md text-neutral-500 hover:bg-rose-500/10 hover:text-rose-400 transition-colors"
-                title="Clear Records"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              <input
+                type="text"
+                placeholder="Search syscall, signal, or message..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-neutral-950 border border-white/10 rounded-md px-3 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-blue-500/50 transition-colors placeholder:text-neutral-600"
+              />
             </div>
             
             {/* 這是關鍵滾動區域 */}
@@ -223,7 +312,12 @@ function App() {
                   Clear - No Violations
                 </div>
               ) : (
-                logs.map(log => (
+                logs.filter(log => 
+                  searchTerm === '' || 
+                  log.syscall?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                  log.signal?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                  log.message?.toLowerCase().includes(searchTerm.toLowerCase())
+                ).map(log => (
                   <div 
                     key={log.id} 
                     onClick={() => copyToClipboard(log)}

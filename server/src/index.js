@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
@@ -54,6 +55,59 @@ const init = () => {
 
 if (connectDB()) init();
 
+io.on('connection', (socket) => {
+  console.log('Client connected');
+  if (!db) return;
+  try {
+    const samples = db.prepare('SELECT * FROM resource_samples ORDER BY id DESC LIMIT 20').all().reverse();
+    samples.forEach(s => {
+      socket.emit('telemetry', {
+        time: new Date(s.ts).toLocaleTimeString(),
+        cpu: s.cpu_pct,
+        memory: s.mem_bytes / (1024 * 1024),
+        totalMemory: os.totalmem() / (1024 * 1024)
+      });
+    });
+
+    const events = db.prepare('SELECT * FROM syscall_events ORDER BY id DESC LIMIT 50').all().reverse();
+    events.forEach(e => {
+      socket.emit('security_event', {
+        id: e.id,
+        time: new Date(e.ts).toLocaleTimeString(),
+        type: 'Violation',
+        signal: e.signal_name,
+        syscall: e.syscall_name,
+        path: e.path || '',
+        message: e.semantic_msg
+      });
+    });
+
+    // 初始傳送運行中的沙盒
+    const actives = db.prepare('SELECT * FROM executions WHERE end_ts IS NULL').all();
+    socket.emit('active_sandboxes', actives.map(e => ({
+      id: e.id,
+      pid: e.pid,
+      command: e.command,
+      profile: e.profile,
+      startTime: new Date(e.start_ts).toLocaleTimeString()
+    })));
+  } catch (err) {
+    console.error('Error sending initial data:', err.message);
+  }
+
+  socket.on('kill_sandbox', (data) => {
+    const { pid, id } = data;
+    console.log(`Request to kill sandbox: PID=${pid}, ID=${id}`);
+    if (pid) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (err) {
+        console.error(`Failed to kill process ${pid}:`, err.message);
+      }
+    }
+  });
+});
+
 // 每秒輪詢資料庫
 setInterval(() => {
   if (!db) {
@@ -69,7 +123,8 @@ setInterval(() => {
         io.emit('telemetry', {
           time: new Date(s.ts).toLocaleTimeString(),
           cpu: s.cpu_pct,
-          memory: s.mem_bytes / (1024 * 1024) // 轉為 MB
+          memory: s.mem_bytes / (1024 * 1024), // 轉為 MB
+          totalMemory: os.totalmem() / (1024 * 1024) // 轉為 MB
         });
         lastSampleId = s.id;
       });
@@ -91,6 +146,16 @@ setInterval(() => {
         lastEventId = e.id;
       });
     }
+
+    // 更新運行中的沙盒列表
+    const actives = db.prepare('SELECT * FROM executions WHERE end_ts IS NULL').all();
+    io.emit('active_sandboxes', actives.map(e => ({
+      id: e.id,
+      pid: e.pid,
+      command: e.command,
+      profile: e.profile,
+      startTime: new Date(e.start_ts).toLocaleTimeString()
+    })));
   } catch (err) {
     // console.error('Database polling error:', err.message); // Commented to reduce noise if DB is locked
   }
