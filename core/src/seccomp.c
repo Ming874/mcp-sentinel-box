@@ -55,15 +55,22 @@ int sb_seccomp_install(const sb_profile_t *p, int *listener_fd_out) {
 
     /* 2) 對每條 rule 加進 filter
      *    seccomp_rule_add 簽名: (ctx, action, syscall, arg_cnt, ...)
-     *    arg_cnt=0 表不對 syscall 參數做額外比對，整個 syscall 一律走此 action */
-    for (size_t i = 0; i < p->rule_count; i++) {
-        uint32_t act = to_scmp_action(p->rules[i].action, p->rules[i].errno_value);
-        int rc = seccomp_rule_add(ctx, act, p->rules[i].syscall_nr, 0);
-        if (rc != 0) {
-            /* libseccomp 對部分 syscall 在某架構上不存在會回 -EFAULT/-EINVAL；
-             * 列為 warn 而非 fatal，避免一個 platform-specific syscall 害整個 filter 起不來 */
-            sb_log_warn("seccomp_rule_add(syscall=%d) 失敗: rc=%d",
-                        p->rules[i].syscall_nr, rc);
+     *    arg_cnt=0 表不對 syscall 參數做額外比對，整個 syscall 一律走此 action
+     *    效能優化：優先加入 ALLOW 規則，讓 BPF 判斷樹能更早放行高頻 system call */
+    for (size_t pass = 0; pass < 2; pass++) {
+        for (size_t i = 0; i < p->rule_count; i++) {
+            if ((pass == 0 && p->rules[i].action != SB_ACT_ALLOW) ||
+                (pass == 1 && p->rules[i].action == SB_ACT_ALLOW)) {
+                continue;
+            }
+            uint32_t act = to_scmp_action(p->rules[i].action, p->rules[i].errno_value);
+            int rc = seccomp_rule_add(ctx, act, p->rules[i].syscall_nr, 0);
+            if (rc != 0) {
+                /* libseccomp 對部分 syscall 在某架構上不存在會回 -EFAULT/-EINVAL；
+                 * 列為 warn 而非 fatal，避免一個 platform-specific syscall 害整個 filter 起不來 */
+                sb_log_warn("seccomp_rule_add(syscall=%d) 失敗: rc=%d",
+                            p->rules[i].syscall_nr, rc);
+            }
         }
     }
 

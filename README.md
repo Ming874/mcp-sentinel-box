@@ -38,7 +38,9 @@ The foundational layer responsible for physical isolation, optimized for high pe
     *   **`SECCOMP_RET_USER_NOTIF`**: Instead of high-latency `ptrace` (SECCOMP_RET_TRACE), SentinelBox uses the modern User Notification API (Linux 5.0+). This allows the monitor to handle syscalls via a dedicated file descriptor, reducing context-switch overhead by up to 80%.
 *   **Cgroup v2 Unified Resource Control**:
     *   Strictly caps `cpu.max`, `memory.max`, and `pids.max`.
-    *   **Capability Dropping**: Removes all unnecessary Linux capabilities (e.g., `CAP_SYS_ADMIN`, `CAP_NET_RAW`) even for the root user inside the sandbox.
+    *   **Capability Dropping & Core Dump Prevention**: Removes all unnecessary Linux capabilities (e.g., `CAP_SYS_ADMIN`, `CAP_NET_RAW`) and enforces `prctl(PR_SET_DUMPABLE, 0)` to prevent host memory leaks from crashed sandboxes.
+*   **High-Performance Observability**:
+    *   Uses `wait4()` instead of `waitpid()` to atomically retrieve both the exit status and detailed resource usage (`rusage`) in a single syscall, drastically reducing overhead for one-shot AI code executions.
 
 ### 3.2 Telemetry & Monitoring Layer (Rust / eBPF)
 *   **eBPF & Cgroup v2 Integration**: Uses eBPF hooks and Cgroup v2 controllers to monitor kernel events and resource usage (CPU/Memory/IO) without the overhead of polling `/proc`.
