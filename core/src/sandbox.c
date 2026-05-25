@@ -41,6 +41,7 @@
 #include <sched.h>           /* CLONE_NEW* 與 clone() */
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
@@ -59,10 +60,10 @@ static char g_child_stack[SB_CHILD_STACK_SIZE] __attribute__((aligned(16)));
 static int child_entry(void *arg) {
     sb_runtime_t *rt = (sb_runtime_t *)arg;
 
-    /* Step a: 從 sync_pipe 讀 1 byte，等父行程寫好 uid_map/gid_map */
+    /* Step a: 從 sync_pipe 讀取 host PID，等父行程寫好 uid_map/gid_map */
     close(rt->sync_pipe[1]);                            /* 子不寫 sync_pipe */
-    char ch;
-    if (read(rt->sync_pipe[0], &ch, 1) != 1) {
+    pid_t host_pid = 0;
+    if (read(rt->sync_pipe[0], &host_pid, sizeof(host_pid)) != sizeof(host_pid)) {
         sb_log_err("child: sync_pipe read 失敗，父行程未通知");
         _exit(1);
     }
@@ -72,6 +73,11 @@ static int child_entry(void *arg) {
     if (setresuid(0, 0, 0) != 0 || setresgid(0, 0, 0) != 0) {
         sb_log_err("child: setresuid/gid 失敗: %s", strerror(errno));
         _exit(1);
+    }
+
+    /* 防止 Core Dump 洩漏沙盒內記憶體資訊到宿主 */
+    if (prctl(PR_SET_DUMPABLE, 0) != 0) {
+        sb_log_warn("child: prctl(PR_SET_DUMPABLE, 0) 失敗: %s", strerror(errno));
     }
 
     /* Step c: 設定 overlay + pivot_root */
@@ -103,16 +109,17 @@ static int child_entry(void *arg) {
 
     /* Step i: 透過 sv[0] 把 notify_fd 傳給 monitor
      *
-     * 重要 invariant：這裡用 sendmsg(SCM_RIGHTS) 傳 fd，而此時 seccomp filter
-     * 已生效。因此 profile 內【絕對不能】把 sendmsg 設成 NOTIFY，否則 child 自己的
-     * 這個 sendmsg 會被自己的 filter 攔住、等 monitor 回應，但 monitor 還在等收這個
-     * fd → 互鎖（見 seccomp_unotify(2) 對 bootstrap syscall 的警告，及 profiles/*.json）。
-     * 網路偵測改攔 socket/connect/bind/listen/accept 即可，不需攔 sendmsg。 */
+     * 傳送格式："PID:<host_pid>|CMD:<argv...>" 讓 monitor 記錄到 audit log */
     if (rt->ipc_sock_child >= 0) {
-        if (sb_ipc_send_fd(rt->ipc_sock_child, notify_fd, "NOTIFY_FD") != SB_OK) {
+        char handshake[512];
+        int n = snprintf(handshake, sizeof(handshake), "PID:%d|CMD:", (int)host_pid);
+        for (int i = 0; i < rt->cfg->argc && n < (int)sizeof(handshake) - 1; i++) {
+            n += snprintf(handshake + n, sizeof(handshake) - n, "%s%s",
+                          rt->cfg->argv[i], (i == rt->cfg->argc - 1) ? "" : " ");
+        }
+
+        if (sb_ipc_send_fd(rt->ipc_sock_child, notify_fd, handshake) != SB_OK) {
             sb_log_err("child: 傳遞 notify_fd 失敗");
-            /* 不一定要中斷，但 monitor 收不到 fd 就無法執行 user notification 路徑；
-             * 我們選擇繼續執行（profile 內的 ERRNO/KILL 規則仍會生效）。 */
         }
         close(rt->ipc_sock_child);
     }
@@ -189,9 +196,9 @@ int sb_sandbox_run(sb_runtime_t *rt) {
         sb_log_warn("無法把 child 加入 cgroup（可能 delegation 未設定）");
     }
 
-    /* 通知 child 可以繼續了：寫 1 byte 到 sync_pipe */
+    /* 通知 child 可以繼續了：將 child 的 host PID 寫入 sync_pipe */
     close(rt->sync_pipe[0]);                                /* 父不讀 */
-    if (write(rt->sync_pipe[1], "G", 1) != 1) {             /* "G" for Go */
+    if (write(rt->sync_pipe[1], &pid, sizeof(pid)) != sizeof(pid)) {
         sb_log_err("通知 child 失敗: %s", strerror(errno));
         kill(pid, SIGKILL);
     }
@@ -199,8 +206,9 @@ int sb_sandbox_run(sb_runtime_t *rt) {
 
     /* 等 child 結束 */
     int status = 0;
-    if (waitpid(pid, &status, 0) < 0) {
-        sb_log_err("waitpid 失敗: %s", strerror(errno));
+    struct rusage usage;
+    if (wait4(pid, &status, 0, &usage) < 0) {
+        sb_log_err("wait4 失敗: %s", strerror(errno));
         return SB_ERR_GENERIC;
     }
     if (WIFEXITED(status)) {
@@ -209,6 +217,11 @@ int sb_sandbox_run(sb_runtime_t *rt) {
         sb_log_info("sandbox child 被訊號終止, signal=%d (SIGSYS=31?)",
                     WTERMSIG(status));
     }
+
+    sb_log_info("sandbox child 資源消耗: cpu_user=%ld.%06ld s, cpu_sys=%ld.%06ld s, max_rss=%ld KB",
+                (long)usage.ru_utime.tv_sec, (long)usage.ru_utime.tv_usec,
+                (long)usage.ru_stime.tv_sec, (long)usage.ru_stime.tv_usec,
+                (long)usage.ru_maxrss);
 
     /* 釋放 cgroup（呼叫端可能還想讀統計，故 cleanup 留到 main 處理） */
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1;

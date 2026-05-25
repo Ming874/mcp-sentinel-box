@@ -14,6 +14,8 @@
 CREATE TABLE IF NOT EXISTS executions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     profile     TEXT    NOT NULL,
+    pid         INTEGER,                       -- 宿主機 PID
+    command     TEXT,                          -- 執行命令 argv[0] ...
     start_ts    INTEGER NOT NULL,              -- UNIX epoch (ms)
     end_ts      INTEGER,                       -- NULL 表尚未結束（= 進行中的沙盒）
     status      TEXT                           -- completed / killed / error

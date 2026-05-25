@@ -54,10 +54,10 @@ impl AuditDb {
     }
 
     /// 開始一次執行；回傳 exec_id 給後續事件 / sample 標籤
-    pub fn record_execution_start(&mut self, profile: &str) -> Result<i64> {
+    pub fn record_execution_start(&mut self, profile: &str, pid: Option<i32>, command: Option<&str>) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO executions (profile, start_ts) VALUES (?, ?)",
-            params![profile, now_ms()],
+            "INSERT INTO executions (profile, pid, command, start_ts) VALUES (?, ?, ?, ?)",
+            params![profile, pid, command, now_ms()],
         )?;
         Ok(self.conn.last_insert_rowid())
     }

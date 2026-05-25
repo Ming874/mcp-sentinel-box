@@ -66,13 +66,25 @@ fn main() -> Result<()> {
 
     // 3) 開啟 SQLite WAL audit log（Arc<Mutex> 讓 telemetry thread 共用同一個 writer）
     let audit = Arc::new(Mutex::new(db::AuditDb::open(&db_path)?));
-    let exec_id = audit.lock().unwrap().record_execution_start(&policy.name)?;
-    info!(exec_id, db = ?db_path, "audit DB 已就緒");
 
-    // 4) 收 notify_fd
-    let (notify_fd, hello) = ipc::recv_fd(sock_fd)
+    // 4) 收 notify_fd 並解析 handshake (格式: "PID:<pid>|CMD:<cmd>")
+    let (notify_fd, handshake) = ipc::recv_fd(sock_fd)
         .context("從 sandbox child 取 notify_fd 失敗")?;
-    info!(notify_fd, hello, "已收到 sandbox child 傳來的 notify_fd");
+    
+    let mut child_pid = None;
+    let mut child_cmd = None;
+    if handshake.starts_with("PID:") {
+        if let Some(pipe_idx) = handshake.find('|') {
+            let pid_part = &handshake[4..pipe_idx];
+            child_pid = pid_part.parse::<i32>().ok();
+            if handshake[pipe_idx..].starts_with("|CMD:") {
+                child_cmd = Some(&handshake[pipe_idx + 5..]);
+            }
+        }
+    }
+
+    let exec_id = audit.lock().unwrap().record_execution_start(&policy.name, child_pid, child_cmd)?;
+    info!(exec_id, ?child_pid, ?child_cmd, "已收到 sandbox child 傳來的 notify_fd 並記錄執行開始");
 
     // 5) 啟動 telemetry 採樣執行緒（Phase 3）
     let stop_flag = Arc::new(AtomicBool::new(false));
