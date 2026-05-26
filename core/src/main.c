@@ -68,7 +68,11 @@ static pid_t spawn_monitor(const char *monitor_bin, int sock_for_monitor,
         /* 透過環境變數傳遞 cgroup 路徑與 profile 名稱，
          * 讓 monitor 能 sample telemetry 並標記 audit log */
         setenv(SB_ENV_MONITOR_FD, "3", 1);
-        setenv("SENTINELBOX_CGROUP", rt->cgroup_path, 1);
+        if (rt->cgroup_active) {
+            setenv("SENTINELBOX_CGROUP", rt->cgroup_path, 1);
+        } else {
+            unsetenv("SENTINELBOX_CGROUP");
+        }
         setenv("SENTINELBOX_PROFILE", rt->profile->name, 1);
 
         execlp(monitor_bin, "sentinelbox-monitor", (char *)NULL);
@@ -199,8 +203,10 @@ int main(int argc, char **argv) {
 
     /* 印出最後資源用量 */
     uint64_t mem = 0, cpu_us = 0;
-    sb_cg_read_memory_current(rt.cgroup_path, &mem);
-    sb_cg_read_cpu_usage(rt.cgroup_path, &cpu_us);
+    if (rt.cgroup_active) {
+        sb_cg_read_memory_current(rt.cgroup_path, &mem);
+        sb_cg_read_cpu_usage(rt.cgroup_path, &cpu_us);
+    }
     fprintf(stderr,
             "[sentinelbox] 結束摘要：sandbox_rc=%d mem_peak~%lu KiB cpu_total=%lu ms\n",
             sandbox_rc, (unsigned long)(mem >> 10), (unsigned long)(cpu_us / 1000));

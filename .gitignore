@@ -52,12 +52,3 @@ Thumbs.db
 # Claude Code 本地指令
 .claude/
 CLAUDE.md
-
-# LaTeX 生成的中間檔
-docs/*.aux
-docs/*.log
-docs/*.out
-docs/*.toc
-docs/*.fls
-docs/*.fdb_latexmk
-docs/*.synctex.gz

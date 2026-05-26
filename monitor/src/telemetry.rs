@@ -16,10 +16,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, Instant};
-use tracing::{debug, warn};
+use tracing::warn;
 
-/// 採樣 loop。`cgroup_path` 為 None 時退化為只記空樣本（dev 環境用）。
+/// 採樣 loop。cgroup_path 為 None 時退化為只記空樣本（dev 環境用）。
 /// db 由 main thread 傳入，兩邊共用同一個 SQLite connection（Mutex 保護）。
+use std::io::{Read, Seek, SeekFrom};
+
 pub fn run(
     cgroup_path: Option<String>,
     db: Arc<Mutex<crate::db::AuditDb>>,
@@ -38,6 +40,16 @@ pub fn run(
         .map(|n| n.get() as f64)
         .unwrap_or(1.0);
 
+    // 預先開啟 cgroup 檔案以減少系統呼叫開銷
+    let mut mem_file = cgroup_path.as_ref().and_then(|cg| {
+        std::fs::File::open(Path::new(cg).join("memory.current")).ok()
+    });
+    let mut cpu_file = cgroup_path.as_ref().and_then(|cg| {
+        std::fs::File::open(Path::new(cg).join("cpu.stat")).ok()
+    });
+
+    let mut buf = String::with_capacity(256);
+
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if next_tick > now {
@@ -54,32 +66,48 @@ pub fn run(
         let mut current_cgroup_cpu = 0;
 
         let mut cgroup_success = false;
-        if let Some(ref cg) = cgroup_path {
-            if let Ok(m) = read_u64_file(Path::new(cg).join("memory.current")) {
-                if let Ok(c) = read_cgroup_cpu(cg) {
+        
+        // 讀取記憶體
+        if let Some(ref mut f) = mem_file {
+            buf.clear();
+            if f.seek(SeekFrom::Start(0)).is_ok() && f.read_to_string(&mut buf).is_ok() {
+                if let Ok(m) = buf.trim().parse::<u64>() {
                     mem_bytes = m;
-                    current_cgroup_cpu = c;
-                    
-                    if let Some(prev_c) = prev_cgroup_cpu {
-                        if elapsed_us > 0.0 {
-                            cpu_pct = (c.saturating_sub(prev_c) as f64) / elapsed_us / num_cores * 100.0;
-                        }
-                    }
-                    prev_cgroup_cpu = Some(c);
                     cgroup_success = true;
                 }
             }
         }
 
-        // 2. 若 cgroup 失敗或數值為 0，Fallback 到系統全域數據
-        if !cgroup_success || (cpu_pct < 0.01 && mem_bytes == 0) {
-            mem_bytes = parse_sys_meminfo().unwrap_or(0);
+        // 讀取 CPU
+        if let Some(ref mut f) = cpu_file {
+            buf.clear();
+            if f.seek(SeekFrom::Start(0)).is_ok() && f.read_to_string(&mut buf).is_ok() {
+                if let Ok(c) = parse_cpu_stat(&buf) {
+                    current_cgroup_cpu = c;
+                    if let Some(prev_c) = prev_cgroup_cpu {
+                        if elapsed_us > 0.0 {
+                            cpu_pct = (c.saturating_sub(prev_c) as f64) / elapsed_us * 100.0;
+                        }
+                    }
+                    prev_cgroup_cpu = Some(c);
+                } else {
+                    cgroup_success = false;
+                }
+            } else {
+                cgroup_success = false;
+            }
+        }
+
+        // 2. 若 cgroup 失敗，不應該回傳系統全域記憶體 (會誤導使用者以為沙盒用了好幾 GB)
+        // 在 Fallback 模式下，我們寧可回傳 0 或從 /proc/stat 估算
+        if !cgroup_success {
+            mem_bytes = 0; // 改為 0，避免顯示系統 3.4GB 負載
             if let Ok((active, total)) = parse_sys_stat() {
                 if let Some((p_active, p_total)) = prev_sys_cpu {
                     let d_active = active.saturating_sub(p_active) as f64;
                     let d_total = total.saturating_sub(p_total) as f64;
                     if d_total > 0.0 {
-                        cpu_pct = (d_active / d_total) * 100.0;
+                        cpu_pct = (d_active / d_total) * 100.0 * num_cores;
                     }
                 }
                 prev_sys_cpu = Some((active, total));
@@ -104,7 +132,7 @@ pub fn snapshot(cgroup_path: &str) -> Result<(u64, u64)> {
     Ok((mem, cpu))
 }
 
-/// 讀 memory.peak（kernel ≥ 5.19）；不存在時 fallback 讀 memory.current。
+/// 讀 memory.peak（kernel >= 5.19）；不存在時 fallback 讀 memory.current。
 pub fn read_mem_peak(cg: &str) -> u64 {
     let peak_path = PathBuf::from(cg).join("memory.peak");
     let curr_path = PathBuf::from(cg).join("memory.current");
@@ -117,21 +145,6 @@ pub fn read_mem_peak(cg: &str) -> u64 {
 fn read_cgroup_cpu(cg: &str) -> Result<u64> {
     let s = std::fs::read_to_string(Path::new(cg).join("cpu.stat"))?;
     parse_cpu_stat(&s)
-}
-
-fn parse_sys_meminfo() -> Result<u64> {
-    let s = std::fs::read_to_string("/proc/meminfo")?;
-    let mut total = 0;
-    let mut available = 0;
-    for line in s.lines() {
-        if line.starts_with("MemTotal:") {
-            total = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0);
-        } else if line.starts_with("MemAvailable:") {
-            available = line.split_whitespace().nth(1).unwrap_or("0").parse::<u64>().unwrap_or(0);
-        }
-    }
-    // 回傳已使用記憶體 (bytes)
-    Ok((total.saturating_sub(available)) * 1024)
 }
 
 fn parse_sys_stat() -> Result<(u64, u64)> {
@@ -175,4 +188,3 @@ fn parse_cpu_stat(s: &str) -> Result<u64> {
     }
     Err(anyhow::anyhow!("找不到 usage_usec"))
 }
-

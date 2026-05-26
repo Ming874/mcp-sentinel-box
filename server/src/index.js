@@ -5,6 +5,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { exec, spawn } = require('child_process');
 
 const app = express();
 const server = http.createServer(app);
@@ -89,7 +90,8 @@ io.on('connection', (socket) => {
       pid: e.pid,
       command: e.command,
       profile: e.profile,
-      startTime: new Date(e.start_ts).toLocaleTimeString()
+      startTime: new Date(e.start_ts).toLocaleTimeString(),
+      startTs: e.start_ts
     })));
   } catch (err) {
     console.error('Error sending initial data:', err.message);
@@ -97,16 +99,114 @@ io.on('connection', (socket) => {
 
   socket.on('kill_sandbox', (data) => {
     const { pid, id } = data;
-    console.log(`Request to kill sandbox: PID=${pid}, ID=${id}`);
+    console.log(`[KILL] Request to kill sandbox: PID=${pid}, ID=${id}`);
     if (pid) {
       try {
-        process.kill(pid, 'SIGKILL');
+        // 殺死整個進程組 (Process Group)
+        // 對負數 PID 送訊號會送到該 PID 所屬的進程組
+        // 解決沙盒內有無窮迴圈子進程殺不掉的問題
+        process.kill(-pid, 'SIGKILL');
+        console.log(`[KILL] Sent SIGKILL to process group ${pid}`);
       } catch (err) {
-        console.error(`Failed to kill process ${pid}:`, err.message);
+        console.error(`[KILL] Group kill failed for ${pid}, trying single pid:`, err.message);
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch (e2) {
+          // 進程可能已經結束
+        }
+        
+        // 更激進的 Shell Fallback
+        exec(`sudo kill -9 -${pid} || sudo kill -9 ${pid} || kill -9 -${pid} || kill -9 ${pid}`, (error) => {
+          if (error) console.error(`[KILL] Final shell kill failed for ${pid}:`, error.message);
+        });
       }
     }
   });
+
+  socket.on('execute_code', (data) => {
+    const { code, profile = 'strict', language = 'sh' } = data;
+    const execId = `exec_${Date.now()}`;
+    console.log(`[EXEC] [${execId}] Executing ${language} code with profile: ${profile}`);
+    
+    socket.emit('execution_started', { execId });
+
+    let tmpFile;
+    if (language === 'c') {
+      const sourceFile = path.join(os.tmpdir(), `sentinelbox_${Date.now()}.c`);
+      const binaryFile = path.join(os.tmpdir(), `sentinelbox_${Date.now()}.bin`);
+      fs.writeFileSync(sourceFile, code);
+
+      exec(`gcc -static ${sourceFile} -o ${binaryFile}`, (compileError, stdout, stderr) => {
+        if (compileError) {
+          socket.emit('execution_result', {
+            execId,
+            code: 1,
+            output: `Compilation Error:\n${stderr}`,
+            success: false
+          });
+          try { fs.unlinkSync(sourceFile); } catch (e) {}
+          return;
+        }
+
+        const runScript = path.join(__dirname, '../../scripts/run.sh');
+        const cmd = `cat > /tmp/exe && chmod +x /tmp/exe && /tmp/exe`;
+        const child = spawn('bash', [runScript, '--profile', profile, '--', '/bin/sh', '-c', cmd]);
+        
+        const binaryData = fs.readFileSync(binaryFile);
+        handleChild(child, socket, [sourceFile, binaryFile], execId, binaryData);
+      });
+      return;
+    } else {
+      const runScript = path.join(__dirname, '../../scripts/run.sh');
+      const cmd = `cat > /tmp/script.sh && chmod +x /tmp/script.sh && /bin/sh /tmp/script.sh`;
+      const child = spawn('bash', [runScript, '--profile', profile, '--', '/bin/sh', '-c', cmd]);
+      handleChild(child, socket, [], execId, code);
+    }
+  });
 });
+
+function handleChild(child, socket, filesToCleanup, execId, stdinData) {
+  let output = '';
+
+  if (stdinData) {
+    child.stdin.write(stdinData);
+    child.stdin.end();
+  }
+
+  child.stdout.on('data', (data) => {
+    output += data.toString();
+  });
+  child.stderr.on('data', (data) => {
+    output += data.toString();
+  });
+
+  child.on('close', (code) => {
+    console.log(`[EXEC] [${execId}] Sandbox execution finished with code ${code}`);
+    socket.emit('execution_result', {
+      execId,
+      code,
+      output: output.trim(),
+      success: code === 0
+    });
+    filesToCleanup.forEach(f => {
+      try { fs.unlinkSync(f); } catch (e) {}
+    });
+  });
+
+  child.on('error', (err) => {
+    console.error(`[EXEC] [${execId}] Failed to start sandbox:`, err);
+    socket.emit('execution_result', {
+      execId,
+      error: err.message,
+      success: false
+    });
+    filesToCleanup.forEach(f => {
+      try { fs.unlinkSync(f); } catch (e) {}
+    });
+  });
+}
+
+let lastActivePids = "";
 
 // 每秒輪詢資料庫
 setInterval(() => {
@@ -149,13 +249,18 @@ setInterval(() => {
 
     // 更新運行中的沙盒列表
     const actives = db.prepare('SELECT * FROM executions WHERE end_ts IS NULL').all();
-    io.emit('active_sandboxes', actives.map(e => ({
-      id: e.id,
-      pid: e.pid,
-      command: e.command,
-      profile: e.profile,
-      startTime: new Date(e.start_ts).toLocaleTimeString()
-    })));
+    const currentActivePids = actives.map(e => e.pid).sort().join(',');
+    if (currentActivePids !== lastActivePids) {
+      io.emit('active_sandboxes', actives.map(e => ({
+        id: e.id,
+        pid: e.pid,
+        command: e.command,
+        profile: e.profile,
+        startTime: new Date(e.start_ts).toLocaleTimeString(),
+        startTs: e.start_ts
+      })));
+      lastActivePids = currentActivePids;
+    }
   } catch (err) {
     // console.error('Database polling error:', err.message); // Commented to reduce noise if DB is locked
   }

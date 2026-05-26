@@ -15,16 +15,17 @@
 set -euo pipefail
 
 echo "[setup_cgroup] 檢查 cgroup v2 是否已啟用..."
-if ! mount | grep -qE '\s/sys/fs/cgroup\s.*cgroup2'; then
-  echo "  /sys/fs/cgroup 並非 cgroup2 unified hierarchy。"
+CG2_MOUNT=$(mount -t cgroup2 | head -n 1 | awk '{print $3}')
+if [[ -z "$CG2_MOUNT" ]]; then
+  echo "  找不到 cgroup2 mount point。"
   echo "  請編輯 /etc/default/grub，加入 systemd.unified_cgroup_hierarchy=1，"
   echo "  然後 update-grub && reboot。"
   exit 1
 fi
-echo "  OK"
+echo "  OK (mount point: $CG2_MOUNT)"
 
 UID_NUM=$(id -u)
-USER_CG="/sys/fs/cgroup/user.slice/user-${UID_NUM}.slice/user@${UID_NUM}.service"
+USER_CG="$CG2_MOUNT/user.slice/user-${UID_NUM}.slice/user@${UID_NUM}.service"
 if [[ ! -d "$USER_CG" ]]; then
   echo "  找不到使用者 cgroup: $USER_CG"
   echo "  請從 systemd 登入 (systemctl --user 應該可用)，避免 console 直登"

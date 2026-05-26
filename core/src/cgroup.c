@@ -62,33 +62,47 @@ int sb_cg_create(sb_runtime_t *rt) {
     if (mkdir(rt->cgroup_path, 0755) != 0 && errno != EEXIST) {
         sb_log_err("建立 cgroup 失敗 %s: %s (是否已做 cgroup delegation？)",
                    rt->cgroup_path, strerror(errno));
+        rt->cgroup_active = 0;
         return SB_ERR_CGROUP;
     }
+    rt->cgroup_active = 1;
     sb_log_info("cgroup 建立完成: %s", rt->cgroup_path);
     return SB_OK;
+}
+
+/* 檢查指定路徑是否存在且可寫，避免寫入失敗導致 ERR log */
+static int cg_writable(const char *path) {
+    return access(path, W_OK) == 0;
 }
 
 /* 依 profile 寫入限制檔 */
 int sb_cg_apply_limits(sb_runtime_t *rt) {
     if (!rt || !rt->profile) return SB_ERR_INVAL;
+    if (!rt->cgroup_active) return SB_OK;
     char path[SB_MAX_CGROUP_PATH + 32];
 
     /* memory.max */
     snprintf(path, sizeof path, "%s/memory.max", rt->cgroup_path);
-    if (cg_write_mem(path, rt->profile->mem_limit_bytes) != SB_OK) {
-        sb_log_warn("寫 memory.max 失敗（可能 controller 未 enabled）");
+    if (cg_writable(path)) {
+        if (cg_write_mem(path, rt->profile->mem_limit_bytes) != SB_OK) {
+            sb_log_warn("寫 memory.max 失敗");
+        }
     }
 
     /* cpu.max */
     snprintf(path, sizeof path, "%s/cpu.max", rt->cgroup_path);
-    if (cg_write_cpu_max(path, rt->profile->cpu_max_quota, rt->profile->cpu_max_period) != SB_OK) {
-        sb_log_warn("寫 cpu.max 失敗");
+    if (cg_writable(path)) {
+        if (cg_write_cpu_max(path, rt->profile->cpu_max_quota, rt->profile->cpu_max_period) != SB_OK) {
+            sb_log_warn("寫 cpu.max 失敗");
+        }
     }
 
     /* pids.max - 避免 fork bomb */
     snprintf(path, sizeof path, "%s/pids.max", rt->cgroup_path);
-    if (cg_write_int(path, rt->profile->pids_max) != SB_OK) {
-        sb_log_warn("寫 pids.max 失敗");
+    if (cg_writable(path)) {
+        if (cg_write_int(path, rt->profile->pids_max) != SB_OK) {
+            sb_log_warn("寫 pids.max 失敗");
+        }
     }
 
     sb_log_info("cgroup 限制套用完成 (mem=%lu B, cpu=%lu/%lu us, pids=%u)",
@@ -102,18 +116,33 @@ int sb_cg_apply_limits(sb_runtime_t *rt) {
 /* 把 pid 加入 cgroup（寫 cgroup.procs）
  * 必須一行一個 pid；本系統一次加 sandbox child 一個 pid 就好 */
 int sb_cg_attach(const char *cgroup_path, pid_t pid) {
+    if (!cgroup_path || cgroup_path[0] == '\0') return SB_OK;
     char path[SB_MAX_CGROUP_PATH + 32];
     snprintf(path, sizeof path, "%s/cgroup.procs", cgroup_path);
+
     char val[32];
     int n = snprintf(val, sizeof val, "%d\n", (int)pid);
-    return sb_write_file(path, val, (size_t)n);
+    
+    /* 這裡不用 access 預檢，因為 cgroup.procs 可能 open 成功但 write 失敗 (EACCES)。
+     * sb_write_file 會印出一行 [ERR]，我們接著補上一行解釋性的 [WARN]。 */
+    if (sb_write_file(path, val, (size_t)n) != SB_OK) {
+        if (errno == EACCES || errno == EPERM) {
+            sb_log_warn("無法加入 cgroup: 權限被拒。在巢狀容器中，這通常是因為"
+                        "目前的行程不在 delegated subtree 內 (來源 cgroup 權限問題)。"
+                        "資源限制將無法生效。");
+        }
+        return SB_ERR_CGROUP;
+    }
+    return SB_OK;
 }
 
-/* 清理：rmdir cgroup（cgroup 內必須沒有任何行程） */
+/* 清理：rmdir cgroup（cgroup 內 must 沒有任何行程） */
 int sb_cg_cleanup(const char *cgroup_path) {
-    if (!cgroup_path) return SB_OK;
+    if (!cgroup_path || cgroup_path[0] == '\0') return SB_OK;
     if (rmdir(cgroup_path) != 0) {
-        sb_log_warn("rmdir cgroup %s 失敗: %s", cgroup_path, strerror(errno));
+        if (errno != ENOENT) {
+            sb_log_warn("rmdir cgroup %s 失敗: %s", cgroup_path, strerror(errno));
+        }
         return SB_ERR_CGROUP;
     }
     return SB_OK;

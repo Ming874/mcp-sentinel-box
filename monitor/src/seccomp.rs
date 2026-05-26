@@ -10,7 +10,7 @@
 //!   - 直接打 ioctl 程式碼極短，可讀性高，依賴更少，方便老師審閱。
 
 use anyhow::{anyhow, Result};
-use libc::{c_int, c_void};
+use libc::c_void;
 use std::os::unix::io::RawFd;
 
 /// `struct seccomp_data` 對應 linux/seccomp.h
@@ -62,7 +62,6 @@ const fn ioc(dir: u32, ty: u32, nr: u32, sz: u32) -> u32 {
     (dir << 30) | (ty << 8) | nr | (sz << 16)
 }
 const IOC_READ_WRITE: u32 = 3;
-const IOC_WRITE: u32 = 1;
 const SECCOMP_IOC_MAGIC: u32 = b'!' as u32;
 
 pub const SECCOMP_IOCTL_NOTIF_RECV: u64 = ioc(
@@ -78,9 +77,6 @@ pub const SECCOMP_IOCTL_NOTIF_SEND: u64 = ioc(
     1,
     std::mem::size_of::<SeccompNotifResp>() as u32,
 ) as u64;
-
-pub const SECCOMP_IOCTL_NOTIF_ID_VALID: u64 =
-    ioc(IOC_WRITE, SECCOMP_IOC_MAGIC, 2, std::mem::size_of::<u64>() as u32) as u64;
 
 /// 對 notify_fd 發 `SECCOMP_IOCTL_NOTIF_RECV`，blocking 直到有 syscall 觸發 NOTIFY。
 /// EINTR 會由呼叫端決定要重試或退出（通常 signal 處理時）。
@@ -122,19 +118,6 @@ pub fn send(fd: RawFd, resp: &SeccompNotifResp) -> Result<()> {
         return Err(anyhow!("SECCOMP_IOCTL_NOTIF_SEND 失敗: {e}"));
     }
     Ok(())
-}
-
-/// 確認 notification id 仍有效（target 還活著，且尚未送出 response）。
-/// 在我們讀完 args 後、做決策之前可呼叫，避免 TOCTOU 問題。
-pub fn id_valid(fd: RawFd, id: u64) -> bool {
-    let rc = unsafe {
-        libc::ioctl(
-            fd,
-            SECCOMP_IOCTL_NOTIF_ID_VALID as _,
-            &id as *const _ as *const c_void,
-        )
-    };
-    rc == 0
 }
 
 /// 工具：把 syscall 編號轉成可讀名稱（給 log / audit 用）。

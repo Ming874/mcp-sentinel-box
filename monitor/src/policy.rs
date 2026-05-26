@@ -69,17 +69,17 @@ struct ProfileRaw {
 /// 為了能用 syscall 號碼快速查表，我們會再以名稱對應 nr 來反查。
 pub struct Policy {
     pub name: String,
-    pub description: String,
+    pub _description: String,
     pub default_action: Action,
     /// syscall_name → (action, errno)。monitor 接到通知時，
     /// 先用 seccomp::syscall_name(nr) 拿到名稱，再來查表。
     pub rules_by_name: HashMap<String, (Action, i32)>,
-    pub mem_limit_bytes: u64,
-    pub cpu_max_quota: u64,
-    pub cpu_max_period: u64,
-    pub pids_max: u32,
-    pub allow_network: bool,
-    pub allow_dns: bool,
+    pub _mem_limit_bytes: u64,
+    pub _cpu_max_quota: u64,
+    pub _cpu_max_period: u64,
+    pub _pids_max: u32,
+    pub _allow_network: bool,
+    pub _allow_dns: bool,
 }
 
 impl Policy {
@@ -105,15 +105,15 @@ impl Policy {
 
         Ok(Self {
             name: p.name,
-            description: p.description,
+            _description: p.description,
             default_action: p.default_action,
             rules_by_name,
-            mem_limit_bytes: res.mem_limit_bytes,
-            cpu_max_quota: res.cpu_max_quota,
-            cpu_max_period: res.cpu_max_period,
-            pids_max: res.pids_max,
-            allow_network: net.allow,
-            allow_dns: net.allow_dns,
+            _mem_limit_bytes: res.mem_limit_bytes,
+            _cpu_max_quota: res.cpu_max_quota,
+            _cpu_max_period: res.cpu_max_period,
+            _pids_max: res.pids_max,
+            _allow_network: net.allow,
+            _allow_dns: net.allow_dns,
         })
     }
 

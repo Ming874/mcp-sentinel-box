@@ -126,6 +126,7 @@ typedef struct {
     int                 ipc_sock_parent;    /* socketpair 父端 (傳給 monitor) */
     int                 ipc_sock_child;     /* socketpair 子端 (給 sandbox child) */
     int                 sync_pipe[2];       /* 父子同步 (uid_map 寫完後通知) */
+    int                 cgroup_active;      /* cgroup 是否成功建立並可用 */
     char                cgroup_path[SB_MAX_CGROUP_PATH]; /* 本次執行專屬 cgroup */
 } sb_runtime_t;
 

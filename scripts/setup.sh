@@ -61,8 +61,11 @@ if [[ -r /sys/kernel/btf/vmlinux ]]; then
 else
   warn "無 /sys/kernel/btf/vmlinux → eBPF probe 將自動降級為 cgroup 取樣"
 fi
-if ! mount 2>/dev/null | grep -qE '\s/sys/fs/cgroup\s.*cgroup2'; then
-  warn "/sys/fs/cgroup 非 cgroup2 unified hierarchy → cgroup 限制可能無效（見 scripts/setup_cgroup.sh）"
+CG2_MOUNT=$(mount -t cgroup2 | head -n 1 | awk '{print $3}')
+if [[ -n "$CG2_MOUNT" ]]; then
+  log "cgroup2 偵測到掛載於 $CG2_MOUNT"
+else
+  warn "找不到 cgroup2 unified hierarchy → cgroup 限制可能無效（見 scripts/setup_cgroup.sh）"
 fi
 
 # ── 3. 編譯 + rootfs ─────────────────────────────────────────────────────

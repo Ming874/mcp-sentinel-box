@@ -31,8 +31,28 @@ MONITOR="./monitor/target/release/sentinelbox-monitor"
 [[ -x "$MONITOR" ]] || { echo "找不到 $MONITOR，請先 make all" >&2; exit 1; }
 [[ -d "$ROOTFS" ]]  || { echo "找不到 rootfs $ROOTFS，請先 make rootfs" >&2; exit 1; }
 
-if ! mount 2>/dev/null | grep -qE '\s/sys/fs/cgroup\s.*cgroup2'; then
-  warn "/sys/fs/cgroup 非 cgroup2 → cgroup 資源限制不會生效"
+# 動態偵測 cgroup2 與 delegation
+CG2_MOUNT=$(mount -t cgroup2 | head -n 1 | awk '{print $3}')
+CG_PARENT_ARG=""
+
+if [[ -z "$CG2_MOUNT" ]]; then
+  warn "找不到 cgroup2 → cgroup 資源限制不會生效"
+else
+  # 嘗試尋找並建立使用者專屬的 delegated cgroup
+  UID_NUM=$(id -u)
+  USER_CG_BASE="$CG2_MOUNT/user.slice/user-${UID_NUM}.slice/user@${UID_NUM}.service"
+  USER_CG_SB="$USER_CG_BASE/sentinelbox"
+
+  if [[ -d "$USER_CG_BASE" && -w "$USER_CG_BASE" ]]; then
+    mkdir -p "$USER_CG_SB" 2>/dev/null || true
+    if [[ -w "$USER_CG_SB" ]]; then
+      CG_PARENT_ARG="--cgroup-parent=$USER_CG_SB"
+    else
+      warn "cgroup delegation 目錄不可寫: $USER_CG_SB"
+    fi
+  else
+    warn "cgroup2 存在於 $CG2_MOUNT 但未找到可寫的 user slice delegation (見 scripts/setup_cgroup.sh)"
+  fi
 fi
 
 # audit DB 與 mapping 路徑（沿用 monitor 預設搜尋規則）
@@ -45,4 +65,5 @@ exec "$BIN" \
   --rootfs="$ROOTFS" \
   --profile-dir="$REPO_ROOT/profiles" \
   --monitor="$MONITOR" \
+  $CG_PARENT_ARG \
   "$@"

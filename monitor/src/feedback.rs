@@ -19,9 +19,9 @@ use std::path::Path;
 /// 一條 feedback 紀錄。寫到 audit log 與 stderr。
 #[derive(Debug, Clone)]
 pub struct Feedback {
-    pub syscall_name: &'static str,
-    pub action_taken: Action,
-    pub errno: i32,
+    pub _syscall_name: &'static str,
+    pub _action_taken: Action,
+    pub _errno: i32,
     /// 給 LLM / 操作者看的中文 high-level 訊息
     pub semantic_zh: String,
     /// 英文版（給 monitor stdout / 報告匯出用）
@@ -93,9 +93,9 @@ impl FeedbackMap {
         let entry = self.by_name.get(syscall_name).unwrap_or(&self.default);
         let expand = |tpl: &str| substitute(tpl, syscall_name, profile, &notif.data.args);
         Feedback {
-            syscall_name,
-            action_taken: action,
-            errno,
+            _syscall_name: syscall_name,
+            _action_taken: action,
+            _errno: errno,
             semantic_zh: expand(&entry.zh),
             semantic_en: expand(&entry.en),
             remediation: expand(&entry.hint),
