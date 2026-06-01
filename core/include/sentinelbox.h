@@ -16,6 +16,7 @@
 #include <stddef.h>      /* size_t */
 #include <stdint.h>      /* uint32_t/uint64_t */
 #include <sys/types.h>   /* pid_t / uid_t */
+#include <sys/resource.h> /* struct rusage */
 
 /* ---------- 編譯常數 ---------- */
 
@@ -128,6 +129,7 @@ typedef struct {
     int                 sync_pipe[2];       /* 父子同步 (uid_map 寫完後通知) */
     int                 cgroup_active;      /* cgroup 是否成功建立並可用 */
     char                cgroup_path[SB_MAX_CGROUP_PATH]; /* 本次執行專屬 cgroup */
+    struct rusage       last_usage;         /* Sandbox child 最後一次執行的資源統計 */
 } sb_runtime_t;
 
 /* ---------- 公開函式：util.c ---------- */

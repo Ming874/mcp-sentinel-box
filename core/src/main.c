@@ -207,6 +207,17 @@ int main(int argc, char **argv) {
         sb_cg_read_memory_current(rt.cgroup_path, &mem);
         sb_cg_read_cpu_usage(rt.cgroup_path, &cpu_us);
     }
+
+    /* Fallback: 如果 cgroup 讀取不到 (0) 或不活躍，使用 wait4 提供的 rusage。
+     * rusage.ru_maxrss 在 Linux 是 KiB，ru_utime/stime 是秒+微秒。 */
+    if (mem == 0) {
+        mem = (uint64_t)rt.last_usage.ru_maxrss << 10; /* KiB -> Byte */
+    }
+    if (cpu_us == 0) {
+        cpu_us = (uint64_t)rt.last_usage.ru_utime.tv_sec * 1000000 + rt.last_usage.ru_utime.tv_usec +
+                 (uint64_t)rt.last_usage.ru_stime.tv_sec * 1000000 + rt.last_usage.ru_stime.tv_usec;
+    }
+
     fprintf(stderr,
             "[sentinelbox] 結束摘要：sandbox_rc=%d mem_peak~%lu KiB cpu_total=%lu ms\n",
             sandbox_rc, (unsigned long)(mem >> 10), (unsigned long)(cpu_us / 1000));

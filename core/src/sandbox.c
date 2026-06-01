@@ -206,8 +206,7 @@ int sb_sandbox_run(sb_runtime_t *rt) {
 
     /* 等 child 結束 */
     int status = 0;
-    struct rusage usage;
-    if (wait4(pid, &status, 0, &usage) < 0) {
+    if (wait4(pid, &status, 0, &rt->last_usage) < 0) {
         sb_log_err("wait4 失敗: %s", strerror(errno));
         return SB_ERR_GENERIC;
     }
@@ -219,9 +218,9 @@ int sb_sandbox_run(sb_runtime_t *rt) {
     }
 
     sb_log_info("sandbox child 資源消耗: cpu_user=%ld.%06ld s, cpu_sys=%ld.%06ld s, max_rss=%ld KB",
-                (long)usage.ru_utime.tv_sec, (long)usage.ru_utime.tv_usec,
-                (long)usage.ru_stime.tv_sec, (long)usage.ru_stime.tv_usec,
-                (long)usage.ru_maxrss);
+                (long)rt->last_usage.ru_utime.tv_sec, (long)rt->last_usage.ru_utime.tv_usec,
+                (long)rt->last_usage.ru_stime.tv_sec, (long)rt->last_usage.ru_stime.tv_usec,
+                (long)rt->last_usage.ru_maxrss);
 
     /* 釋放 cgroup（呼叫端可能還想讀統計，故 cleanup 留到 main 處理） */
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1;

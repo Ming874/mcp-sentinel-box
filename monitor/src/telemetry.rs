@@ -50,6 +50,16 @@ pub fn run(
 
     let mut buf = String::with_capacity(256);
 
+    // 初始讀取一次，作為基準線，讓 loop 的第一輪就有 delta
+    if let Some(ref mut f) = cpu_file {
+        if f.seek(SeekFrom::Start(0)).is_ok() && f.read_to_string(&mut buf).is_ok() {
+            prev_cgroup_cpu = parse_cpu_stat(&buf).ok();
+        }
+    }
+    if prev_cgroup_cpu.is_none() {
+        prev_sys_cpu = parse_sys_stat().ok();
+    }
+
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if next_tick > now {
@@ -65,7 +75,7 @@ pub fn run(
         let mut cpu_pct = 0.0;
         let mut current_cgroup_cpu = 0;
 
-        let mut cgroup_success = false;
+        let mut cpu_success = false;
         
         // 讀取記憶體
         if let Some(ref mut f) = mem_file {
@@ -73,7 +83,6 @@ pub fn run(
             if f.seek(SeekFrom::Start(0)).is_ok() && f.read_to_string(&mut buf).is_ok() {
                 if let Ok(m) = buf.trim().parse::<u64>() {
                     mem_bytes = m;
-                    cgroup_success = true;
                 }
             }
         }
@@ -90,18 +99,13 @@ pub fn run(
                         }
                     }
                     prev_cgroup_cpu = Some(c);
-                } else {
-                    cgroup_success = false;
+                    cpu_success = true;
                 }
-            } else {
-                cgroup_success = false;
             }
         }
 
-        // 2. 若 cgroup 失敗，不應該回傳系統全域記憶體 (會誤導使用者以為沙盒用了好幾 GB)
-        // 在 Fallback 模式下，我們寧可回傳 0 或從 /proc/stat 估算
-        if !cgroup_success {
-            mem_bytes = 0; // 改為 0，避免顯示系統 3.4GB 負載
+        // 2. 若 cgroup CPU 失敗 (或檔案根本沒開成)，fallback 到系統全域 CPU
+        if !cpu_success {
             if let Ok((active, total)) = parse_sys_stat() {
                 if let Some((p_active, p_total)) = prev_sys_cpu {
                     let d_active = active.saturating_sub(p_active) as f64;
