@@ -24,7 +24,6 @@ function App() {
   const [totalMem, setTotalMem] = useState(8192); // Default 8GB, will update from server
   const [logs, setLogs] = useState<any[]>([]);
   const [activeSandboxes, setActiveSandboxes] = useState<any[]>([]);
-  const [isPaused, setIsPaused] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<number | null>(null);
   
@@ -33,7 +32,6 @@ function App() {
   const [code, setCode] = useState('#!/bin/sh\necho "Hello from SentinelBox!"\n# Try to read a sensitive file\ncat /etc/shadow 2>&1 || echo "Access denied to /etc/shadow"\n');
   const [profile, setProfile] = useState('strict');
   const [isExecuting, setIsExecuting] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Results State: Multiple results tracking
   const [executionResults, setExecutionResults] = useState<any[]>([]);
@@ -51,7 +49,12 @@ function App() {
 
   const languages = [
     { id: 'sh', label: 'Shell Script', defaultCode: '#!/bin/sh\necho "Hello from SentinelBox!"\n# Try to read a sensitive file\ncat /etc/shadow 2>&1 || echo "Access denied to /etc/shadow"\n' },
-    { id: 'c', label: 'C Language', defaultCode: '#include <stdio.h>\n#include <unistd.h>\n\nint main() {\n    printf("Hello from C Sandbox!\\n");\n    printf("My PID is %d\\n", getpid());\n    // Try to open a file\n    FILE *f = fopen("/etc/shadow", "r");\n    if (f == NULL) {\n        perror("fopen /etc/shadow");\n    } else {\n        printf("Successfully opened /etc/shadow (Wait, what?)\\n");\n        fclose(f);\n    }\n    return 0;\n}\n' }
+    { id: 'c', label: 'C Language', defaultCode: '#include <stdio.h>\n#include <unistd.h>\n\nint main() {\n    printf("--- Sandbox Infinite Loop Demo ---\\n");\n    printf("This process will run forever and consume CPU.\\n");\n    printf("You can kill it using the [Trash] icon in the stats panel.\\n");\n    \n    while(1) {\n        // Intensive calculation\n        volatile int x = 1 + 1;\n    }\n    return 0;\n}\n' },
+    { id: 'c_oom', label: 'Demo: Memory Bomb (C)', defaultCode: '#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main() {\n    printf("--- Memory Bomb Starting ---\\n");\n    printf("Allocating memory until OOM...\\n");\n    \n    size_t chunk = 10 * 1024 * 1024; // 10MB chunks\n    void *last = NULL;\n    while(1) {\n        void *p = malloc(chunk);\n        if (p) {\n            memset(p, 0x41, chunk); // Touch memory to ensure physical allocation\n            printf("Allocated: %p\\n", p);\n        } else {\n            perror("malloc");\n            break;\n        }\n    }\n    return 0;\n}\n' },
+    { id: 'oom', label: 'Demo: OOM Attack (Shell)', defaultCode: '#!/bin/sh\n# 資源耗盡樣本：持續分配記憶體直到觸發 cgroup 限制。\n# Strict profile 限制 128 MiB；本腳本嘗試配置 256 MiB。\necho "[oom] 開始大量配置記憶體 (dd)..."\ndd if=/dev/zero of=/tmp/bigfile bs=1M count=256 2>/dev/null || echo "[oom] dd 失敗 - 預期結果：觸發 OOM Kill"\n' },
+    { id: 'mount', label: 'Demo: Mount Privilege Esc.', defaultCode: '#!/bin/sh\n# 惡意樣本：嘗試 mount 檔案系統進行特權提升。\n# Strict profile 下 mount syscall 會觸發 KILL。\necho "[mal_mount] 嘗試 mount tmpfs /tmp2 ..."\nmkdir -p /tmp2\nmount -t tmpfs none /tmp2 || echo "[mal_mount] 失敗 - 預期結果：被 seccomp 阻擋"\n' },
+    { id: 'net', label: 'Demo: Network Privacy Leak', defaultCode: '#!/bin/sh\n# 惡意樣本：嘗試對外建立網路連線外洩隱私。\n# Strict profile 下 connect() 會被 NOTIFY 攔截並回傳 EPERM。\necho "[mal_net] 嘗試 nc 連線 example.com:80 ..."\necho GET / | nc -w 2 example.com 80 || echo "[mal_net] 失敗 - 預期結果：被 SentinelBox 攔截"\n' },
+    { id: 'multi', label: 'Demo: Multi-Sandbox Stress', defaultCode: '#!/bin/sh\n# 同時啟動多個沙盒展示併發監控能力。\n# 建議：連點三次 RUN 觀看 Dashboard 左側 Active Instances 列表。\necho "--- Concurrent Execution Demo ---"\necho "PID: $$ is running independently..." \nsleep 5\necho "Finished."\n' }
   ];
 
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -108,15 +111,20 @@ function App() {
     });
   }, [timeRange]);
 
+  const timeRangeRef = useRef(timeRange);
   useEffect(() => {
-    // 建立 Socket 連線
+    timeRangeRef.current = timeRange;
+  }, [timeRange]);
+
+  useEffect(() => {
+    // 建立 Socket 連線 (只建立一次)
     socketRef.current = io('http://localhost:3001');
 
     socketRef.current.on('telemetry', (payload: any) => {
       if (payload.totalMemory) setTotalMem(payload.totalMemory);
       setData((prevData) => {
         const newData = [...prevData, payload];
-        return newData.slice(-timeRange);
+        return newData.slice(-timeRangeRef.current); 
       });
     });
 
@@ -130,13 +138,16 @@ function App() {
 
     socketRef.current.on('execution_started', (payload: any) => {
       const { execId } = payload;
+      // Clear chart data for new execution
+      setData(generateInitialData(timeRange));
       setExecutionResults(prev => [{
         execId,
         status: 'running',
         startTime: new Date().toLocaleTimeString(),
         output: '',
-        language,
-        profile
+        // 注意：這裡直接拿目前的 state 可能會有閉包問題，但因為是單次觸發通常還好
+        language: '', 
+        profile: ''
       }, ...prev]);
     });
 
@@ -148,10 +159,15 @@ function App() {
       ));
     });
 
+    socketRef.current.on('database_cleared', () => {
+      setLogs([]);
+      setData(generateInitialData(timeRange));
+    });
+
     return () => {
       socketRef.current.disconnect();
     };
-  }, [timeRange, language, profile]);
+  }, []); // 關鍵：空的依賴陣列，防止切換語言時重複註冊
 
   useEffect(() => {
     // logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -274,8 +290,9 @@ function App() {
   const highlightedCode = Prism.highlight(
     code,
     language === 'c' ? Prism.languages.c : Prism.languages.bash,
-    language
+    (language === 'c') ? 'c' : 'bash'
   );
+
 
   const lineCount = code.split('\n').length;
   const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1).join('\n');
@@ -283,8 +300,8 @@ function App() {
   // 統一字體與行高 CSS 以確保對齊
   const editorStyle: React.CSSProperties = {
     fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-    lineHeight: isFullscreen ? '24px' : '18px',
-    fontSize: isFullscreen ? '14px' : '11px',
+    lineHeight: '18px',
+    fontSize: '11px',
   };
 
   return (
@@ -307,11 +324,11 @@ function App() {
                 <select 
                   value={timeRange} 
                   onChange={(e) => setTimeRange(Number(e.target.value))}
-                  className="bg-transparent text-xs text-neutral-300 focus:outline-none cursor-pointer"
+                  className="bg-neutral-900 text-xs text-neutral-300 focus:outline-none cursor-pointer"
                 >
-                  <option value={20}>20s</option>
-                  <option value={60}>1m</option>
-                  <option value={300}>5m</option>
+                  <option value={20} className="bg-neutral-900">20s</option>
+                  <option value={60} className="bg-neutral-900">1m</option>
+                  <option value={300} className="bg-neutral-900">5m</option>
                 </select>
              </div>
              <button 
@@ -320,17 +337,10 @@ function App() {
             >
               Export JSON
             </button>
-             <button 
-              onClick={() => setIsPaused(!isPaused)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 transition-all border border-white/5 active:scale-95 text-xs font-medium"
-            >
-              {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5" />}
-              {isPaused ? 'Resume' : 'Pause'}
-            </button>
             <div className="flex items-center gap-3 px-3 py-1.5 bg-neutral-900 rounded-full border border-emerald-500/20 shadow-sm shadow-emerald-900/5">
               <span className="relative flex h-2 w-2">
-                {!isPaused && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${isPaused ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
               <span className="text-[11px] font-bold text-neutral-400">System Protected</span>
             </div>
@@ -419,9 +429,13 @@ function App() {
                     <select 
                       value={language} 
                       onChange={(e) => handleLanguageChange(e.target.value)}
-                      className="bg-transparent text-[10px] text-neutral-300 focus:outline-none cursor-pointer"
+                      className="bg-neutral-950 text-[10px] text-neutral-300 focus:outline-none cursor-pointer"
                     >
-                      {languages.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                      {languages.map(l => (
+                        <option key={l.id} value={l.id} className="bg-neutral-900 text-neutral-300">
+                          {l.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -439,18 +453,21 @@ function App() {
                     <select 
                       value={profile} 
                       onChange={(e) => setProfile(e.target.value)}
-                      className="bg-transparent text-[10px] text-neutral-300 focus:outline-none cursor-pointer"
+                      className="bg-neutral-950 text-[10px] text-neutral-300 focus:outline-none cursor-pointer"
                     >
-                      {profiles.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                      {profiles.map(p => (
+                        <option key={p.id} value={p.id} className="bg-neutral-900 text-neutral-300">
+                          {p.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
                   <button 
                     onClick={runCode}
-                    disabled={isExecuting}
-                    className={`flex items-center gap-2 px-5 py-1.5 rounded-lg transition-all text-[11px] font-bold shadow-lg shadow-emerald-900/10 active:scale-95 ${isExecuting ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+                    className="flex items-center gap-2 px-5 py-1.5 rounded-lg transition-all text-[11px] font-bold shadow-lg shadow-emerald-900/10 active:scale-95 bg-emerald-600 hover:bg-emerald-500 text-white"
                   >
-                    {isExecuting ? 'RUNNING...' : 'RUN SANDBOX'}
+                    RUN SANDBOX
                   </button>
                 </div>
               </div>
@@ -459,57 +476,28 @@ function App() {
                 <p className="text-[10px] text-emerald-400/80 italic">
                   <strong>{profiles.find(p => p.id === profile)?.label}:</strong> {profiles.find(p => p.id === profile)?.description}
                 </p>
-                <button 
-                  onClick={() => setIsFullscreen(!isFullscreen)}
-                  className="p-1 rounded hover:bg-emerald-500/10 text-emerald-500/60 transition-colors"
-                >
-                  {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                </button>
               </div>
 
               <div className="flex flex-col md:flex-row gap-4 h-[440px]">
-                <div className={`flex-1 min-w-0 relative group/editor ${isFullscreen ? 'fixed inset-0 z-[100] bg-neutral-950 p-4 md:p-8 flex flex-col h-screen' : 'relative flex flex-col'}`}>
-                  {isFullscreen && (
-                    <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
-                      <div className="flex items-center gap-4">
-                        <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                          <Terminal className="w-5 h-5 text-emerald-400" />
-                        </div>
-                        <h2 className="text-xl font-bold text-white uppercase tracking-tighter">Advanced Sandbox Center</h2>
-                      </div>
-                      <button onClick={() => setIsFullscreen(false)} className="p-2 rounded-full hover:bg-white/10 transition-colors">
-                        <X className="w-8 h-8 text-neutral-500" />
-                      </button>
-                    </div>
-                  )}
-
-                  <div className={`flex-1 flex overflow-hidden border border-white/10 rounded-lg bg-neutral-900/20 shadow-inner relative ${isFullscreen ? 'text-base' : 'text-xs'}`}>
+                <div className="flex-1 min-w-0 relative group/editor relative flex flex-col">
+                  <div className="flex-1 flex overflow-hidden border border-white/10 rounded-lg bg-neutral-900/20 shadow-inner relative text-xs">
                     <div style={editorStyle} className="select-none bg-neutral-900/50 border-r border-white/5 text-right font-mono text-neutral-600 p-3 pr-2 whitespace-pre min-w-[3.5em]">
                       {lineNumbers}
                     </div>
                     <div className="flex-1 relative overflow-hidden" ref={editorContainerRef}>
                       <div className="absolute left-0 right-0 bg-emerald-500/5 border-y border-emerald-500/5 pointer-events-none transition-all duration-100 z-0"
-                           style={{ top: `${(cursorLine - 1) * (isFullscreen ? 24 : 18) + 12}px`, height: `${isFullscreen ? 24 : 18}px` }} />
+                           style={{ top: `${(cursorLine - 1) * 18 + 12}px`, height: '18px' }} />
                       <div style={editorStyle} className="absolute inset-0 p-3 font-mono pointer-events-none overflow-hidden whitespace-pre-wrap break-all relative z-[5]"
-                           dangerouslySetInnerHTML={{ __html: Prism.highlight(code, language === 'c' ? Prism.languages.c : Prism.languages.bash, language) + '\n' }} />
+                           dangerouslySetInnerHTML={{ __html: highlightedCode + '\n' }} />
                       <textarea ref={editorRef} style={editorStyle} value={code} onChange={(e) => { setCode(e.target.value); updateCursorLine(e.target); }}
                                 onScroll={handleEditorScroll} onKeyUp={(e) => updateCursorLine(e.currentTarget)} onClick={(e) => updateCursorLine(e.currentTarget)} onMouseUp={handleMouseUp}
                                 spellCheck={false} className="absolute inset-0 w-full h-full bg-transparent p-3 font-mono text-transparent caret-emerald-400 focus:outline-none custom-scrollbar resize-none z-10 whitespace-pre-wrap break-all" />
                     </div>
                   </div>
-                  {isFullscreen && (
-                    <div className="mt-8 flex justify-end gap-4">
-                      <button onClick={() => setIsFullscreen(false)} className="px-6 py-2.5 rounded-xl bg-neutral-900 text-neutral-400 font-bold hover:bg-neutral-800 transition-all border border-white/5">CANCEL</button>
-                      <button onClick={() => { runCode(); setIsFullscreen(false); }} className="px-10 py-2.5 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-900/20 active:scale-95 flex items-center gap-2">
-                        <Play className="w-4 h-4 fill-current" /> DEPLOY & RUN
-                      </button>
-                    </div>
-                  )}
                 </div>
                 
-                {!isFullscreen && (
-                  <div className="flex-1 min-w-0 bg-black/20 border border-white/5 rounded-lg overflow-hidden flex flex-col shadow-inner">
-                    <div className="p-3 border-b border-white/5 flex items-center justify-between bg-neutral-900/40">
+                <div className="flex-1 min-w-0 bg-black/20 border border-white/5 rounded-lg overflow-hidden flex flex-col shadow-inner">
+                  <div className="p-3 border-b border-white/5 flex items-center justify-between bg-neutral-900/40">
                       <div className="flex items-center gap-2">
                         <Terminal className="w-3.5 h-3.5 text-emerald-500" />
                         <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Execution Queue</span>
@@ -560,12 +548,11 @@ function App() {
                       )}
                     </div>
                   </div>
-                )}
+                </div>
               </div>
-            </div>
 
-            {/* Split Charts: CPU and Memory separately */}
-            <div className="flex flex-col space-y-6">
+              {/* Split Charts: CPU and Memory separately */}
+              <div className="flex flex-col space-y-6">
               <div className="bg-neutral-900/40 p-4 rounded-xl border border-white/5 shadow-sm flex flex-col h-[320px]">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
@@ -619,7 +606,7 @@ function App() {
                   <h3 className="text-xs font-bold text-white tracking-tighter">Security Events</h3>
                 </div>
                 <button 
-                  onClick={() => setLogs([])}
+                  onClick={() => socketRef.current.emit('clear_database')}
                   className="p-1.5 rounded-md text-neutral-500 hover:bg-rose-500/10 hover:text-rose-400 transition-colors"
                   title="Clear Records"
                 >
@@ -671,6 +658,12 @@ function App() {
                         <p className="text-[11px] text-neutral-400 leading-relaxed border-l border-neutral-800 pl-2 mt-2 group-hover:text-neutral-300 transition-colors italic">
                           {log.message}
                         </p>
+                        {log.remediation && (
+                          <div className="mt-2 p-2 bg-emerald-500/5 border border-emerald-500/10 rounded text-[10px] text-emerald-400 font-medium">
+                            <Sparkles className="w-3 h-3 inline mr-1 mb-0.5" />
+                            {log.remediation}
+                          </div>
+                        )}
                       </motion.div>
                     ))}
                   </div>

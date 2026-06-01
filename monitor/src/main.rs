@@ -151,7 +151,7 @@ fn main() -> Result<()> {
         // 寫 audit log（path 暫填 None：seccomp args 取 path 需讀 /proc/<pid>/mem，後續再補）
         if let Err(e) = audit.lock().unwrap().record_syscall_event(
             exec_id, notif.pid as i64, notif.data.nr, sysname,
-            action_to_str(action), errno, signal_name, None, &fb.semantic_en) {
+            action_to_str(action), errno, signal_name, None, &fb.semantic_zh, &fb.remediation) {
             warn!(?e, "audit insert 失敗");
         }
 
@@ -205,10 +205,31 @@ fn main() -> Result<()> {
     audit.lock().unwrap().record_execution_end(exec_id, "completed")?;
     info!(exec_id, "monitor 結束");
 
+    // 8) 檢查是否發生 OOM Kill，若是則補記一筆安全事件
+    if let Some(cg) = cgroup_path.as_ref() {
+        if telemetry::is_oom_killed(cg) {
+            let _ = audit.lock().unwrap().record_syscall_event(
+                exec_id, 0, 0, "OOM-Kill", "KILL", 0, "SIGKILL", 
+                None, "資源耗盡：行程超出記憶體限制被核心強制終止 (Cgroup memory.max violation)",
+                "改進方案：檢查是否有記憶體洩漏，或在 profile 中提高 memory.max 上限。"
+            );
+            warn!("偵測到 OOM Kill 事件並已記錄");
+        }
+    }
+
     // 給 stdout 一個漂亮的 summary（給人類看）
     if let Some(cg) = cgroup_path.as_ref() {
-        let mem_peak = telemetry::read_mem_peak(cg);
-        let cpu_us   = telemetry::snapshot(cg).map(|(_, c)| c).unwrap_or(0);
+        let mut mem_peak = telemetry::read_mem_peak(cg);
+        let mut cpu_us   = telemetry::snapshot(cg).map(|(_, c)| c).unwrap_or(0);
+
+        // Fallback: 如果 cgroup 讀取不到，嘗試從資料庫抓取本次執行的最後一筆樣本
+        if mem_peak == 0 || cpu_us == 0 {
+            if let Ok(Some((m, c))) = audit.lock().unwrap().get_last_sample(exec_id) {
+                if mem_peak == 0 { mem_peak = m; }
+                if cpu_us == 0 { cpu_us = c; }
+            }
+        }
+
         println!("[monitor] 執行摘要：mem_peak={} KiB  cpu_total={} ms",
             mem_peak / 1024, cpu_us / 1000);
     }

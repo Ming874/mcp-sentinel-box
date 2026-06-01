@@ -35,8 +35,8 @@ pub fn run(
     let mut prev_sys_cpu: Option<(u64, u64)> = None; // (active, total)
     let mut prev_instant = Instant::now();
 
-    // 核心數：用於 cgroup 數據正規化
-    let num_cores = std::thread::available_parallelism()
+    // 核心數：用於 cgroup 數據正規化（目前 fallback 使用平均負載，暫不乘核心數）
+    let _num_cores = std::thread::available_parallelism()
         .map(|n| n.get() as f64)
         .unwrap_or(1.0);
 
@@ -76,6 +76,7 @@ pub fn run(
         let mut current_cgroup_cpu = 0;
 
         let mut cpu_success = false;
+        let mut mem_success = false;
         
         // 讀取記憶體
         if let Some(ref mut f) = mem_file {
@@ -83,7 +84,15 @@ pub fn run(
             if f.seek(SeekFrom::Start(0)).is_ok() && f.read_to_string(&mut buf).is_ok() {
                 if let Ok(m) = buf.trim().parse::<u64>() {
                     mem_bytes = m;
+                    mem_success = true;
                 }
+            }
+        }
+
+        // 3. 記憶體 fallback (cgroup 失敗則讀系統全域)
+        if !mem_success {
+            if let Ok(m) = parse_sys_memory() {
+                mem_bytes = m;
             }
         }
 
@@ -111,7 +120,7 @@ pub fn run(
                     let d_active = active.saturating_sub(p_active) as f64;
                     let d_total = total.saturating_sub(p_total) as f64;
                     if d_total > 0.0 {
-                        cpu_pct = (d_active / d_total) * 100.0 * num_cores;
+                        cpu_pct = (d_active / d_total) * 100.0;
                     }
                 }
                 prev_sys_cpu = Some((active, total));
@@ -151,6 +160,22 @@ fn read_cgroup_cpu(cg: &str) -> Result<u64> {
     parse_cpu_stat(&s)
 }
 
+/// 檢查 cgroup 是否觸發過 OOM Kill (Linux 核心殺死行程)
+pub fn is_oom_killed(cg: &str) -> bool {
+    let path = PathBuf::from(cg).join("memory.events");
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        for line in s.lines() {
+            // Cgroup v2 格式: "oom_kill <count>"
+            if line.starts_with("oom_kill ") {
+                if let Some(v) = line.split_whitespace().nth(1) {
+                    return v.parse::<u32>().unwrap_or(0) > 0;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn parse_sys_stat() -> Result<(u64, u64)> {
     let s = std::fs::read_to_string("/proc/stat")?;
     if let Some(line) = s.lines().next() {
@@ -171,6 +196,21 @@ fn parse_sys_stat() -> Result<(u64, u64)> {
         }
     }
     Err(anyhow::anyhow!("無法解析 /proc/stat"))
+}
+
+fn parse_sys_memory() -> Result<u64> {
+    let s = std::fs::read_to_string("/proc/meminfo")?;
+    let mut total = 0;
+    let mut avail = 0;
+    for line in s.lines() {
+        if line.starts_with("MemTotal:") {
+            total = line.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        } else if line.starts_with("MemAvailable:") {
+            avail = line.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        }
+    }
+    // KiB -> Byte
+    Ok((total.saturating_sub(avail)) << 10)
 }
 
 fn read_u64_file(path: PathBuf) -> Result<u64> {

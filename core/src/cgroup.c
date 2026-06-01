@@ -65,6 +65,7 @@ int sb_cg_create(sb_runtime_t *rt) {
         rt->cgroup_active = 0;
         return SB_ERR_CGROUP;
     }
+
     rt->cgroup_active = 1;
     sb_log_info("cgroup 建立完成: %s", rt->cgroup_path);
     return SB_OK;

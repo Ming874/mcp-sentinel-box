@@ -26,8 +26,9 @@ let db = null;
 const connectDB = () => {
   try {
     if (fs.existsSync(DB_PATH)) {
-      db = new Database(DB_PATH, { readonly: true });
-      console.log("Connected to real database.");
+      // 移除 readonly: true 讓前端可以透過 Socket 清除資料庫
+      db = new Database(DB_PATH);
+      console.log("Connected to real database (Read-Write).");
       return true;
     }
   } catch (e) {
@@ -60,7 +61,11 @@ io.on('connection', (socket) => {
   console.log('Client connected');
   if (!db) return;
   try {
-    const samples = db.prepare('SELECT * FROM resource_samples ORDER BY id DESC LIMIT 20').all().reverse();
+    const latestExec = db.prepare('SELECT id FROM executions ORDER BY id DESC LIMIT 1').get();
+    let samples = [];
+    if (latestExec) {
+      samples = db.prepare('SELECT * FROM resource_samples WHERE exec_id = ? ORDER BY id DESC LIMIT 20').all(latestExec.id).reverse();
+    }
     samples.forEach(s => {
       socket.emit('telemetry', {
         time: new Date(s.ts).toLocaleTimeString(),
@@ -79,7 +84,8 @@ io.on('connection', (socket) => {
         signal: e.signal_name,
         syscall: e.syscall_name,
         path: e.path || '',
-        message: e.semantic_msg
+        message: e.semantic_msg,
+        remediation: e.remediation || ''
       });
     });
 
@@ -96,6 +102,23 @@ io.on('connection', (socket) => {
   } catch (err) {
     console.error('Error sending initial data:', err.message);
   }
+
+  socket.on('clear_database', () => {
+    console.log('[DB] Request to clear all records');
+    if (!db) return;
+    try {
+      db.prepare('DELETE FROM resource_samples').run();
+      db.prepare('DELETE FROM syscall_events').run();
+      db.prepare('DELETE FROM executions').run();
+      lastSampleId = 0;
+      lastEventId = 0;
+      lastActivePids = ""; // Reset active tracking
+      console.log('[DB] Database cleared successfully.');
+      io.emit('database_cleared'); // Use io.emit to notify ALL clients
+    } catch (e) {
+      console.error('[DB] Failed to clear database:', e.message);
+    }
+  });
 
   socket.on('kill_sandbox', (data) => {
     const { pid, id } = data;
@@ -131,11 +154,13 @@ io.on('connection', (socket) => {
     socket.emit('execution_started', { execId });
 
     let tmpFile;
-    if (language === 'c') {
+    // 判斷是否為 C 語言 (包含 c_oom 範本)
+    if (language === 'c' || language === 'c_oom') {
       const sourceFile = path.join(os.tmpdir(), `sentinelbox_${Date.now()}.c`);
       const binaryFile = path.join(os.tmpdir(), `sentinelbox_${Date.now()}.bin`);
       fs.writeFileSync(sourceFile, code);
 
+      // 使用 systemd-run 包裝編譯與執行，確保 cgroup delegation
       exec(`gcc -static ${sourceFile} -o ${binaryFile}`, (compileError, stdout, stderr) => {
         if (compileError) {
           socket.emit('execution_result', {
@@ -150,7 +175,11 @@ io.on('connection', (socket) => {
 
         const runScript = path.join(__dirname, '../../scripts/run.sh');
         const cmd = `cat > /tmp/exe && chmod +x /tmp/exe && /tmp/exe`;
-        const child = spawn('bash', [runScript, '--profile', profile, '--', '/bin/sh', '-c', cmd]);
+        // 核心修正：加入 systemd-run --user --scope --property=Delegate=yes
+        const child = spawn('systemd-run', [
+            '--user', '--scope', '--property=Delegate=yes',
+            'bash', runScript, '--profile', profile, '--', '/bin/sh', '-c', cmd
+        ]);
         
         const binaryData = fs.readFileSync(binaryFile);
         handleChild(child, socket, [sourceFile, binaryFile], execId, binaryData);
@@ -159,7 +188,11 @@ io.on('connection', (socket) => {
     } else {
       const runScript = path.join(__dirname, '../../scripts/run.sh');
       const cmd = `cat > /tmp/script.sh && chmod +x /tmp/script.sh && /bin/sh /tmp/script.sh`;
-      const child = spawn('bash', [runScript, '--profile', profile, '--', '/bin/sh', '-c', cmd]);
+      // 核心修正：加入 systemd-run --user --scope --property=Delegate=yes
+      const child = spawn('systemd-run', [
+          '--user', '--scope', '--property=Delegate=yes',
+          'bash', runScript, '--profile', profile, '--', '/bin/sh', '-c', cmd
+      ]);
       handleChild(child, socket, [], execId, code);
     }
   });
@@ -241,7 +274,8 @@ setInterval(() => {
           signal: e.signal_name,
           syscall: e.syscall_name,
           path: e.path || '',
-          message: e.semantic_msg
+          message: e.semantic_msg,
+          remediation: e.remediation || ''
         });
         lastEventId = e.id;
       });
@@ -250,6 +284,17 @@ setInterval(() => {
     // 更新運行中的沙盒列表
     const actives = db.prepare('SELECT * FROM executions WHERE end_ts IS NULL').all();
     const currentActivePids = actives.map(e => e.pid).sort().join(',');
+    
+    // 如果沒有沙盒在跑，主動發送 0 負載訊號讓儀表板降回去
+    if (actives.length === 0) {
+      io.emit('telemetry', {
+        time: new Date().toLocaleTimeString(),
+        cpu: 0,
+        memory: 0,
+        totalMemory: os.totalmem() / (1024 * 1024)
+      });
+    }
+
     if (currentActivePids !== lastActivePids) {
       io.emit('active_sandboxes', actives.map(e => ({
         id: e.id,
@@ -264,7 +309,7 @@ setInterval(() => {
   } catch (err) {
     // console.error('Database polling error:', err.message); // Commented to reduce noise if DB is locked
   }
-}, 1000);
+}, 100);
 
 const PORT = 3001;
 server.listen(PORT, () => {

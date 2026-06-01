@@ -81,11 +81,12 @@ impl AuditDb {
         signal_name: &str,
         path: Option<&str>,
         semantic_msg: &str,
+        remediation: &str,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO syscall_events (exec_id, ts, pid, syscall_nr, syscall_name, action, errno, signal_name, path, semantic_msg)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            params![exec_id, now_ms(), pid, syscall_nr, syscall_name, action, errno, signal_name, path, semantic_msg],
+            "INSERT INTO syscall_events (exec_id, ts, pid, syscall_nr, syscall_name, action, errno, signal_name, path, semantic_msg, remediation)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![exec_id, now_ms(), pid, syscall_nr, syscall_name, action, errno, signal_name, path, semantic_msg, remediation],
         )?;
         Ok(())
     }
@@ -103,5 +104,20 @@ impl AuditDb {
             params![exec_id, now_ms(), mem_bytes as i64, cpu_usec as i64, cpu_pct],
         )?;
         Ok(())
+    }
+
+    pub fn get_last_sample(&self, exec_id: i64) -> Result<Option<(u64, u64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT mem_bytes, cpu_usec FROM resource_samples WHERE exec_id = ? ORDER BY id DESC LIMIT 1"
+        )?;
+        let res = stmt.query_row(params![exec_id], |row| {
+            Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
+        });
+
+        match res {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 }

@@ -30,14 +30,16 @@
 #include <errno.h>
 #include <seccomp.h>
 
-/* 把 sb_action_t 轉成 libseccomp 的 SCMP_ACT_* 巨集 */
+/* 把 sb_action_t 轉成 libseccomp 的 SCMP_ACT_* 巨集。
+ * 注意：為了讓 Monitor 能記錄並提供語義回饋，SB_ACT_KILL 也對應到 SCMP_ACT_NOTIFY，
+ * 由 Monitor 收到後再執行真正的 kill 操作。 */
 static uint32_t to_scmp_action(sb_action_t a, int errno_value) {
     switch (a) {
         case SB_ACT_ALLOW:  return SCMP_ACT_ALLOW;
         case SB_ACT_ERRNO:  return SCMP_ACT_ERRNO((uint32_t)errno_value);
         case SB_ACT_NOTIFY: return SCMP_ACT_NOTIFY;
-        case SB_ACT_KILL:   return SCMP_ACT_KILL_PROCESS;
-        default:            return SCMP_ACT_KILL_PROCESS;
+        case SB_ACT_KILL:   return SCMP_ACT_NOTIFY; // 改為 NOTIFY 以便 Monitor 紀錄
+        default:            return SCMP_ACT_NOTIFY;
     }
 }
 
