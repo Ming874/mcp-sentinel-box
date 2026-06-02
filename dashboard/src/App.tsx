@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ShieldAlert, Cpu, MemoryStick, Play, Pause, Trash2, LayoutDashboard, Copy, Check, Maximize2, Minimize2, X, Terminal, Sparkles, FileUp } from 'lucide-react';
+import { ShieldAlert, Cpu, MemoryStick, Play, Trash2, LayoutDashboard, Copy, Check, X, Terminal, Sparkles, FileUp } from 'lucide-react';
 import { io } from 'socket.io-client';
 import Prism from 'prismjs';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -31,7 +31,6 @@ function App() {
   const [language, setLanguage] = useState('sh');
   const [code, setCode] = useState('#!/bin/sh\necho "Hello from SentinelBox!"\n# Try to read a sensitive file\ncat /etc/shadow 2>&1 || echo "Access denied to /etc/shadow"\n');
   const [profile, setProfile] = useState('strict');
-  const [isExecuting, setIsExecuting] = useState(false);
   
   // Results State: Multiple results tracking
   const [executionResults, setExecutionResults] = useState<any[]>([]);
@@ -57,7 +56,6 @@ function App() {
     { id: 'multi', label: 'Demo: Multi-Sandbox Stress', defaultCode: '#!/bin/sh\n# 同時啟動多個沙盒展示併發監控能力。\n# 建議：連點三次 RUN 觀看 Dashboard 左側 Active Instances 列表。\necho "--- Concurrent Execution Demo ---"\necho "PID: $$ is running independently..." \nsleep 5\necho "Finished."\n' }
   ];
 
-  const logsEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -153,7 +151,6 @@ function App() {
 
     socketRef.current.on('execution_result', (payload: any) => {
       const { execId, output, code, success } = payload;
-      setIsExecuting(false);
       setExecutionResults(prev => prev.map(res => 
         res.execId === execId ? { ...res, status: 'completed', output, code, success } : res
       ));
@@ -206,7 +203,6 @@ function App() {
 
   const runCode = () => {
     if (!code.trim()) return;
-    setIsExecuting(true);
     socketRef.current.emit('execute_code', { code, profile, language });
   };
 
