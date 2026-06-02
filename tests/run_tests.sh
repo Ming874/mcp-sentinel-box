@@ -74,4 +74,21 @@ run_case "oom_bomb"     0 255  /bin/sh /tmp/oom_bomb.sh
 
 echo
 echo "==== 測試摘要: PASS=$PASS FAIL=$FAIL ===="
+
+# 案例 5：telemetry & DB 管線（cgroup 取樣 + SQLite audit log 內容斷言）
+# 獨立腳本，自帶 pre-flight 與暫存 DB；SKIP(rc=2) 不計入 FAIL。
+echo
+echo "=== TEST: telemetry_db（見 tests/test_telemetry.sh）==="
+bash "$SCRIPT_DIR/test_telemetry.sh"
+tele_rc=$?
+if [[ "$tele_rc" -eq 0 ]]; then
+  echo "[PASS] telemetry_db"; PASS=$((PASS+1))
+elif [[ "$tele_rc" -eq 2 ]]; then
+  echo "[SKIP] telemetry_db（前置未備妥）"
+else
+  echo "[FAIL] telemetry_db (rc=$tele_rc)"; FAIL=$((FAIL+1))
+fi
+
+echo
+echo "==== 總摘要: PASS=$PASS FAIL=$FAIL ===="
 [[ "$FAIL" -eq 0 ]] || exit 1
