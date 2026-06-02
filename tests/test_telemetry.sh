@@ -115,22 +115,37 @@ def check(cond, msg):
         fails.append(msg)
 
 # --- executions ---
+# 欄位防呆：不同版本 binary 的 executions schema 可能缺少 pid/command
+# （pid/command 是 commit dbbb0f0 才加入）。只查實際存在的欄位，避免
+# 「no such column」直接 traceback；缺漏欄位以 None 呈現。
+cols = {r[1] for r in cur.execute("PRAGMA table_info(executions)").fetchall()}
+core = ["id", "profile", "status", "start_ts", "end_ts"]
+missing_core = [c for c in core if c not in cols]
+check(not missing_core, f"executions 具備核心欄位 {core}（缺：{missing_core or '無'}）")
+if missing_core:
+    print(f"{ERR}executions schema 不符（可能 binary 過舊，請 make all 重建）{RST}")
+    sys.exit(1)
+
+want = core + [c for c in ("pid", "command") if c in cols]
 row = cur.execute(
-    "SELECT id, profile, status, start_ts, end_ts, pid, command "
-    "FROM executions ORDER BY id DESC LIMIT 1"
+    f"SELECT {', '.join(want)} FROM executions ORDER BY id DESC LIMIT 1"
 ).fetchone()
 check(row is not None, "executions 至少有 1 筆執行紀錄")
 if row is None:
     print(f"{ERR}沒有任何 execution，無法繼續{RST}")
     sys.exit(1)
 
-exec_id, profile, status, start_ts, end_ts, pid, command = row
-print(f"  {INFO}exec_id={exec_id} profile={profile} status={status} "
-      f"pid={pid} cmd={command!r}{RST}")
-check(end_ts is not None, "execution 已正常收尾（end_ts 已寫入）")
-check(status == "completed", f"execution status=completed（實際 {status!r}）")
-if end_ts and start_ts:
-    print(f"  {INFO}execution 時長 = {(end_ts - start_ts)/1000:.2f}s{RST}")
+rec = dict(zip(want, row))
+exec_id = rec["id"]
+print(f"  {INFO}exec_id={exec_id} profile={rec['profile']} status={rec['status']} "
+      f"pid={rec.get('pid')} cmd={rec.get('command')!r}{RST}")
+if "pid" not in cols or "command" not in cols:
+    print(f"  {WARN}[schema]{RST} 此 binary 的 executions 缺 pid/command 欄位 "
+          f"→ 不是最新 build（make all 可更新）。不影響 telemetry 斷言。")
+check(rec["end_ts"] is not None, "execution 已正常收尾（end_ts 已寫入）")
+check(rec["status"] == "completed", f"execution status=completed（實際 {rec['status']!r}）")
+if rec["end_ts"] and rec["start_ts"]:
+    print(f"  {INFO}execution 時長 = {(rec['end_ts'] - rec['start_ts'])/1000:.2f}s{RST}")
 
 # --- resource_samples（核心：10Hz 取樣率）---
 n, mem_max, cpu_usec_max, cpu_pct_max = cur.execute(
