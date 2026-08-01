@@ -1,0 +1,25 @@
+flowchart TB
+    classDef ai fill:#d6eaf8,stroke:#2874a6
+    classDef core fill:#fdebd0,stroke:#b9770e
+    classDef sec fill:#f5cba7,stroke:#a04000
+    classDef ipc fill:#d5f5e3,stroke:#1e8449
+    classDef ui fill:#e8daef,stroke:#6c3483
+
+    AI[["LLM / AI Agent"]]:::ai
+
+    subgraph SB["SentinelBox 系統邊界"]
+        direction TB
+        MCP["MCP Server (TypeScript)<br/>語義翻譯 + Tool 介面"]:::ipc
+        MON["Rust Monitor<br/>Seccomp Notify Listener"]:::sec
+        CORE["C Isolation Engine<br/>Namespaces / OverlayFS / Cgroup"]:::core
+        DB[("SQLite WAL<br/>Audit DB")]:::ipc
+        UI["React Dashboard<br/>即時資源 + 違規時間軸"]:::ui
+    end
+
+    AI <-->|JSON-RPC| MCP
+    MCP -->|提交執行| CORE
+    CORE -. notify_fd .-> MON
+    MON -->|寫入事件 / 採樣| DB
+    MCP -->|讀違規 + 翻譯| DB
+    DB --> UI
+    MON -. SIGKILL .-> CORE

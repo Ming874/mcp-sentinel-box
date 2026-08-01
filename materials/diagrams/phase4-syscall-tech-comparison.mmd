@@ -1,0 +1,13 @@
+quadrantChart
+    title 系統調用攔截技術比較 (性能 vs 語意豐富度)
+    x-axis "性能開銷高" --> "性能開銷低"
+    y-axis "語意貧乏" --> "語意豐富 / 可動態決策"
+    quadrant-1 "理想區 (SentinelBox 目標)"
+    quadrant-2 "高開銷強控制"
+    quadrant-3 "舊技術 / 慎用"
+    quadrant-4 "高效但僵化"
+    "ptrace (1990s)": [0.18, 0.78]
+    "LSM (AppArmor/SELinux)": [0.78, 0.32]
+    "Seccomp-BPF (KILL/ERRNO)": [0.92, 0.18]
+    "Seccomp USER_NOTIF": [0.82, 0.85]
+    "eBPF LSM (未來)": [0.88, 0.90]

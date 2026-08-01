@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant U as 沙盒進程 (User code)
+    participant K as Linux Kernel<br/>(Seccomp BPF)
+    participant M as Rust Monitor
+    participant DB as SQLite WAL
+    participant FB as feedback.rs
+
+    U->>K: syscall e.g. socket(AF_INET, ...)
+    K->>K: BPF filter 評估 nr
+    alt 規則 = ALLOW
+        K-->>U: 直接放行 (fast path)
+    else 規則 = NOTIFY
+        K->>K: 暫停 syscall, 建立 seccomp_notif
+        K-->>M: notify_fd 變為可讀
+        M->>K: ioctl(SECCOMP_IOCTL_NOTIF_RECV)
+        K-->>M: SeccompNotif{id, pid, data{nr, args[6]}}
+        M->>FB: lookup(syscall_name)
+        FB-->>M: {action, errno, semantic_zh/en, hint}
+        M->>DB: INSERT INTO syscall_events
+        M->>K: ioctl(SECCOMP_IOCTL_NOTIF_SEND<br/>{id, val=0, error=-EACCES})
+        K-->>U: syscall 返回 errno (進程不死)
+    end

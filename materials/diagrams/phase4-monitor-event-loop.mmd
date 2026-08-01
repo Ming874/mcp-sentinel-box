@@ -1,0 +1,26 @@
+stateDiagram-v2
+    [*] --> Init
+    Init: 載入 profile + feedback map<br/>開啟 AuditDb (WAL)
+    Init --> WaitFd: recv_fd via SCM_RIGHTS
+    WaitFd --> Polling: notify_fd 取得
+
+    state Polling {
+        [*] --> poll_block
+        poll_block: poll([notify_fd, signal_fd], -1)
+        poll_block --> recv_notif: notify_fd 可讀
+        recv_notif: ioctl NOTIF_RECV
+        recv_notif --> resolve: 取得 SeccompNotif
+        resolve: policy.match(nr)<br/>feedback.build()
+        resolve --> record: 寫 syscall_events
+        record --> respond
+        respond: ioctl NOTIF_SEND<br/>(ALLOW / errno / CONTINUE)
+        respond --> poll_block
+    }
+
+    Polling --> Telemetry: 每 100ms tick
+    Telemetry: 讀 cgroup<br/>寫 resource_samples
+    Telemetry --> Polling
+
+    Polling --> Shutdown: SIGTERM / target exit
+    Shutdown: flush DB<br/>close notify_fd
+    Shutdown --> [*]

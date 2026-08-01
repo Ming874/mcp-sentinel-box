@@ -1,0 +1,27 @@
+flowchart TB
+    classDef ro fill:#dff9fb,stroke:#22a6b3
+    classDef rw fill:#f6e58d,stroke:#e1b12c
+    classDef view fill:#dfe6e9,stroke:#2d3436
+    classDef ram fill:#fab1a0,stroke:#d63031
+
+    HOST["宿主檔案系統<br/>(read-only rootfs 目錄)"]:::ro
+
+    subgraph TMPFS["tmpfs (RAM-backed, size=64M)"]
+        UP["upperdir/<br/>沙盒寫入區"]:::rw
+        WK["workdir/<br/>OverlayFS 暫存"]:::rw
+    end
+    class TMPFS ram
+
+    LD["lowerdir<br/>(共享 rootfs，唯讀)"]:::ro
+    MERGED["merged/<br/>沙盒實際看到的根目錄"]:::view
+
+    HOST --> LD
+    LD --> OV{{"overlay mount<br/>(VFS 合併)"}}
+    UP --> OV
+    WK --> OV
+    OV --> MERGED
+
+    MERGED -->|pivot_root| NEWROOT["新根 (/)"]:::view
+    NEWROOT -. umount2 MNT_DETACH .-> OLD["/old_root<br/>(自子進程視圖切除)"]:::view
+
+    style OV fill:#fdcb6e,stroke:#e17055,stroke-width:2px

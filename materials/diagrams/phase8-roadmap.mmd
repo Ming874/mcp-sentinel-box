@@ -1,0 +1,24 @@
+timeline
+    title SentinelBox 技術演進藍圖
+    section Done (v0.1 期末交付)
+        Phase 1 : 緒論 + 動機
+                : 語意斷層問題定義
+        Phase 2 : C 隔離引擎
+                : Namespaces + OverlayFS + Cgroup v2
+        Phase 3 : Rust 遙測 + SQLite WAL
+                : 10Hz cgroup 採樣
+        Phase 4 : Seccomp USER_NOTIF + MCP
+                : 語義翻譯閉環
+        Phase 5 : React Dashboard
+                : Socket.io 即時推播
+    section Next (v0.2)
+        eBPF CO-RE  : aya-rs 取代 process_vm_readv
+                    : 核心態抓取 syscall 字串參數
+        溫啟動池    : Predictive Sandbox Pool
+                    : <5ms 冷啟動
+    section Future (v1.0+)
+        微型 VM 整合 : Firecracker / Kata
+                    : 硬體級 Kernel 隔離
+        意圖感知策略 : LLM 推導最窄化 profile
+                    : 任務驅動的動態 syscall 白名單
+        LSM Hook    : 與 AppArmor / SELinux 共存

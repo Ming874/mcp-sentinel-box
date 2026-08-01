@@ -1,0 +1,21 @@
+timeline
+    title Linux/UNIX 沙盒隔離技術演進
+    1979 : chroot
+         : 僅檔案路徑視圖隔離
+         : root 易逃逸
+    2000 : FreeBSD Jails
+         : 加強檔案 + 網路隔離
+    2002 : Linux Namespaces
+         : PID/MNT/NET/IPC/USER 多維度
+         : Docker / Podman 基石
+    2007 : Cgroups (Google)
+         : 精準資源配額
+    2005 : Seccomp-BPF
+         : Kernel 態 syscall 過濾
+         : 但回饋僅 KILL / ERRNO
+    2019 : Seccomp USER_NOTIF (Linux 5.0)
+         : 攔截權交給 User Space
+         : 可動態決策 + 取得參數
+    2025 : SentinelBox
+         : Namespaces + Seccomp Notify
+         : + 語義翻譯層 (MCP)

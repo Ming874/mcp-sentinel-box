@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant AI as AI Agent (LLM)
+    participant MCP as MCP Server
+    participant SB as SentinelBox<br/>(core + monitor)
+    participant DB as Audit DB
+
+    AI->>MCP: tools/call execute_in_sandbox<br/>(code = "nc -zv google.com 80")
+    MCP->>SB: spawn sandbox + run script
+    SB->>SB: seccomp 攔截 socket()
+    SB->>DB: 寫入 syscall_events<br/>{nr=41, action=NOTIFY, errno=EACCES}
+    SB-->>MCP: exit_code=1, stderr="Permission denied"
+
+    AI->>MCP: tools/call translate_violation<br/>(exec_id)
+    MCP->>DB: SELECT 最近違規
+    DB-->>MCP: row{syscall=socket, errno=EACCES, hint=...}
+    MCP-->>AI: "在 strict 模式下，外網存取已禁用<br/>建議改用 mock 或檢查 profile"
+
+    AI->>AI: 推理：非權限問題，<br/>而是策略限制
+    AI->>MCP: tools/call execute_in_sandbox<br/>(改用本地 mock)
+    MCP->>SB: 重跑
+    SB-->>MCP: exit_code=0
+    MCP-->>AI: 成功，無違規記錄

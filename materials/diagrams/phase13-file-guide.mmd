@@ -1,0 +1,53 @@
+flowchart LR
+    classDef c fill:#fef9e7,stroke:#b7950b
+    classDef rs fill:#fadbd8,stroke:#a93226
+    classDef ts fill:#d6eaf8,stroke:#1b4f72
+    classDef cfg fill:#e8daef,stroke:#6c3483
+    classDef doc fill:#d5f5e3,stroke:#1e8449
+
+    subgraph CORE["core/ (C)"]
+        c1["main.c<br/>CLI 入口"]:::c
+        c2["sandbox.c<br/>clone + child orchestration"]:::c
+        c3["namespace.c<br/>uid/gid_map"]:::c
+        c4["overlayfs.c<br/>tmpfs + pivot_root"]:::c
+        c5["seccomp.c<br/>BPF filter install"]:::c
+        c6["cgroup.c<br/>v2 leaf 寫入"]:::c
+        c7["capability.c<br/>cap drop + NO_NEW_PRIVS"]:::c
+        c8["ipc.c<br/>SCM_RIGHTS sendmsg"]:::c
+    end
+
+    subgraph MON["monitor/ (Rust)"]
+        r1["main.rs<br/>event loop"]:::rs
+        r2["seccomp.rs<br/>ioctl bindings"]:::rs
+        r3["policy.rs<br/>profile 引擎"]:::rs
+        r4["feedback.rs<br/>語義翻譯"]:::rs
+        r5["telemetry.rs<br/>10Hz cgroup 採樣"]:::rs
+        r6["db.rs<br/>SQLite WAL"]:::rs
+    end
+
+    subgraph MCP["mcp-server/ (TypeScript)"]
+        t1["index.ts<br/>JSON-RPC + tools"]:::ts
+        t2["services/<br/>翻譯邏輯"]:::ts
+    end
+
+    subgraph CFG["設定 / 對照"]
+        p1["profiles/strict.json"]:::cfg
+        p2["profiles/web.json"]:::cfg
+        p3["profiles/datascience.json"]:::cfg
+        m1["mappings/syscall_feedback.json"]:::cfg
+        s1["monitor/migrations/001_init.sql"]:::cfg
+    end
+
+    subgraph DOC["docs/"]
+        d1["Final_Report.tex"]:::doc
+        d2["WIKI.md / ARCHITECTURE.md"]:::doc
+    end
+
+    c2 --> c3 & c4 & c5 & c6 & c7
+    c5 -. notify_fd .-> r2
+    r2 --> r3 --> r4
+    r1 --> r5 --> r6
+    t1 --> r6
+    r3 --> p1
+    r4 --> m1
+    r6 --> s1

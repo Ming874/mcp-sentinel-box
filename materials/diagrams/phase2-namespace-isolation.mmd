@@ -1,0 +1,27 @@
+flowchart LR
+    classDef ns fill:#fff3cd,stroke:#856404
+    classDef effect fill:#d1ecf1,stroke:#0c5460
+    classDef risk fill:#f8d7da,stroke:#721c24
+
+    SB[("Sandbox Child Process<br/>(clone with CLONE_NEW*)")]
+
+    subgraph NS["Namespace 隔離維度"]
+        N1["CLONE_NEWPID"]:::ns
+        N2["CLONE_NEWNS (Mount)"]:::ns
+        N3["CLONE_NEWNET"]:::ns
+        N4["CLONE_NEWUSER"]:::ns
+        N5["CLONE_NEWUTS"]:::ns
+        N6["CLONE_NEWIPC"]:::ns
+        N7["CLONE_NEWCGROUP"]:::ns
+    end
+
+    SB --> N1 --> E1["PID=1 init 視角<br/>看不到宿主進程"]:::effect
+    SB --> N2 --> E2["獨立 mount table<br/>不洩漏宿主磁碟"]:::effect
+    SB --> N3 --> E3["僅 loopback (strict)<br/>無外網/區網存取"]:::effect
+    SB --> N4 --> E4["UID 0 in sandbox<br/>= UID 1000 in host<br/>(防提權)"]:::effect
+    SB --> N5 --> E5["獨立 hostname"]:::effect
+    SB --> N6 --> E6["獨立 SysV IPC / POSIX MQ"]:::effect
+    SB --> N7 --> E7["cgroup 視圖隔離<br/>(防止 cgroup escape)"]:::effect
+
+    E4 -.->|搭配| CAP["capability drop<br/>CAP_SYS_ADMIN / NET_RAW"]:::risk
+    E1 -.->|搭配| SEC["Seccomp filter"]:::risk

@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    participant P as Parent (sentinelbox)
+    participant M as Monitor (Rust)
+    participant C as Child (clone)
+    participant K as Linux Kernel
+
+    P->>P: socketpair(sv[0], sv[1])
+    P->>M: fork+exec monitor, 傳 sv[1] 為 fd 3
+    P->>P: pipe2(sync_pipe)
+    P->>K: clone(CLONE_NEWPID|NEWUSER|NEWNS|<br/>NEWNET|NEWIPC|NEWUTS|NEWCGROUP)
+    K-->>C: 子進入新 namespaces (uid=65534)
+    P->>P: 寫 /proc/<pid>/setgroups=deny
+    P->>P: 寫 uid_map / gid_map<br/>(0 → host_uid)
+    P->>C: write(sync_pipe, host_pid)
+    P->>P: cgroup attach (memory/cpu/pids)
+    C->>C: setresuid(0,0,0)  // 沙盒內 root
+    C->>K: tmpfs + overlay mount<br/>pivot_root + umount old
+    C->>K: mount fresh /proc (or rbind fallback)
+    C->>C: sethostname / prctl(NO_NEW_PRIVS)
+    C->>C: cap_drop(SYS_ADMIN, NET_ADMIN, ...)
+    C->>K: seccomp_load(filter w/ NOTIFY rules)
+    K-->>C: notify_fd
+    C->>M: sendmsg + SCM_RIGHTS(notify_fd)
+    C->>K: execve(target_program)
+    Note over M,K: Monitor 開始 poll notify_fd<br/>等待違規 syscall 觸發

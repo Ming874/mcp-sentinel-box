@@ -1,0 +1,17 @@
+flowchart TD
+    classDef ok fill:#d5f5e3,stroke:#1e8449
+    classDef warn fill:#fcf3cf,stroke:#9a7d0a
+    classDef bad fill:#fadbd8,stroke:#922b21
+
+    A([每 100ms tick]) --> B{"嘗試讀<br/>/sys/fs/cgroup/sentinelbox-{id}/<br/>cpu.stat & memory.current"}
+    B -- 成功 --> C["精準採樣<br/>(audit-grade)"]:::ok
+    B -- 失敗 (ENOENT / EACCES / EROFS) --> D{"是否在 Docker 內 /<br/>cgroup namespace 不可寫?"}
+    D -- 是 --> E["Fallback: 解析<br/>/proc/stat (CPU)<br/>/proc/meminfo (Memory)"]:::warn
+    D -- 否 --> F["記錯誤碼<br/>跳過此次採樣"]:::bad
+
+    C --> G["正規化: bytes→MB,<br/>usage_usec→delta%"]
+    E --> G
+    G --> H[(SQLite WAL<br/>resource_samples)]
+
+    style A fill:#d6eaf8,stroke:#1b4f72
+    style H fill:#e8daef,stroke:#6c3483

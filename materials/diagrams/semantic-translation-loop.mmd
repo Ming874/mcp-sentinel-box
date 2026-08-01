@@ -1,0 +1,17 @@
+sequenceDiagram
+    autonumber
+    participant AI as AI Agent
+    participant SB as Sandbox (core, C)
+    participant K as Linux Kernel
+    participant M as Monitor (Rust)
+    participant MCP as MCP Server (TS)
+
+    AI->>SB: exec generated code
+    SB->>K: syscall e.g. socket()
+    K-->>K: Seccomp-BPF filter hit
+    K--xSB: SIGSYS / NOTIFY
+    K->>M: seccomp_unotify fd event
+    M->>M: lookup syscall_feedback.json
+    M->>MCP: semantic event {syscall, action, msg}
+    MCP-->>AI: "Action Denied: restricted network call"
+    AI->>SB: retry with corrected code

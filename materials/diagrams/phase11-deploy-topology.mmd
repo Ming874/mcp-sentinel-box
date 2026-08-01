@@ -1,0 +1,43 @@
+flowchart TB
+    classDef host fill:#d6eaf8,stroke:#1b4f72
+    classDef svc fill:#fef9e7,stroke:#7d6608
+    classDef sb fill:#fdebd0,stroke:#b9770e
+    classDef vol fill:#e8daef,stroke:#6c3483
+
+    LLM[["遠端 LLM<br/>(Claude / GPT-4)"]]
+
+    subgraph HOST["宿主機 (Linux ≥ 5.15)"]
+        direction TB
+        SYS["systemd user@.service<br/>Delegate=yes"]:::host
+
+        subgraph DC["docker-compose stack"]
+            MCP["mcp-server<br/>(Node.js)"]:::svc
+            MON["sentinelbox-monitor<br/>(Rust)"]:::svc
+            DASH["dashboard<br/>(React + Express)"]:::svc
+            CORE["sentinelbox-core<br/>(C, exec on demand)"]:::svc
+
+            subgraph SBX["每個沙盒實例"]
+                direction LR
+                NS["Namespaces"]:::sb
+                OV["OverlayFS tmpfs"]:::sb
+                CG["Cgroup v2 leaf"]:::sb
+                SC["Seccomp filter"]:::sb
+            end
+            CORE -.->|spawn| SBX
+        end
+
+        DB[(SQLite WAL<br/>volume: ./data)]:::vol
+        PROF[(profiles/*.json)]:::vol
+        MAP[(mappings/syscall_feedback.json)]:::vol
+    end
+
+    LLM <-->|stdio JSON-RPC| MCP
+    MCP --> CORE
+    MON -. notify_fd via SCM_RIGHTS .- CORE
+    MON --> DB
+    MCP --> DB
+    DASH --> DB
+    MON --> PROF
+    MON --> MAP
+
+    USER[/"操作人員<br/>browser :3000"/] --> DASH

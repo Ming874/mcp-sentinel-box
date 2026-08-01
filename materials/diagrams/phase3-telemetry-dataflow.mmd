@@ -1,0 +1,37 @@
+flowchart LR
+    subgraph Kernel["Linux Kernel (cgroup v2)"]
+        MC[memory.current]
+        CS[cpu.stat<br/>usage_usec]
+        MP[memory.peak]
+    end
+
+    subgraph Monitor["Monitor (Rust)"]
+        T["telemetry.rs<br/>10 Hz sampler"]
+        DB["db.rs<br/>AuditDb wrapper"]
+        SC["seccomp.rs<br/>NOTIFY events"]
+    end
+
+    subgraph Storage["SQLite (WAL mode)"]
+        E[(executions)]
+        SE[(syscall_events)]
+        RS[(resource_samples)]
+    end
+
+    subgraph Consumers["Downstream"]
+        MCPs[MCP server]
+        UI[Dashboard UI]
+    end
+
+    MC -->|read every 100ms| T
+    CS -->|read every 100ms| T
+    MP -->|on exit summary| T
+    T -->|record_resource_sample| DB
+    SC -->|record_syscall_event| DB
+    DB -->|INSERT WAL| E
+    DB -->|INSERT WAL| SE
+    DB -->|INSERT WAL| RS
+
+    RS -->|concurrent read| MCPs
+    SE -->|concurrent read| MCPs
+    RS -->|concurrent read| UI
+    SE -->|concurrent read| UI

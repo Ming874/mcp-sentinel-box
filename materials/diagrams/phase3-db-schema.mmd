@@ -1,0 +1,34 @@
+erDiagram
+    executions ||--o{ syscall_events : has
+    executions ||--o{ resource_samples : has
+
+    executions {
+        INTEGER id PK
+        TEXT    profile
+        INTEGER start_ts "epoch ms"
+        INTEGER end_ts "nullable"
+        TEXT    status "completed|killed|error"
+    }
+
+    syscall_events {
+        INTEGER id PK
+        INTEGER exec_id FK
+        INTEGER ts "epoch ms"
+        INTEGER pid
+        INTEGER syscall_nr
+        TEXT    syscall_name
+        TEXT    action "ALLOW|ERRNO|NOTIFY|KILL"
+        INTEGER errno
+        TEXT    signal_name "EPERM|EACCES|SIGKILL"
+        TEXT    path
+        TEXT    semantic_msg
+    }
+
+    resource_samples {
+        INTEGER id PK
+        INTEGER exec_id FK
+        INTEGER ts "epoch ms"
+        INTEGER mem_bytes
+        INTEGER cpu_usec "monotonic"
+        REAL    cpu_pct "interval %"
+    }

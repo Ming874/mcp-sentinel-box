@@ -1,0 +1,27 @@
+flowchart TB
+    classDef tool fill:#e8f8f5,stroke:#117a65
+    classDef io fill:#fef9e7,stroke:#7d6608
+
+    LLM[["LLM / AI Agent"]]
+    LLM <-->|JSON-RPC 2.0<br/>over stdio| SRV
+
+    subgraph SRV["MCP Server (mcp-server/src/index.ts)"]
+        REG["Server.registerCapabilities<br/>tools.listChanged = true"]
+        T1["execute_in_sandbox<br/>輸入: code, profile<br/>動作: spawn sentinelbox-core"]:::tool
+        T2["translate_violation<br/>輸入: exec_id<br/>動作: 查 syscall_events"]:::tool
+        T3["suggest_repair<br/>輸入: violation_id<br/>動作: 結合 hint + LLM 友善訊息"]:::tool
+        T4["list_recent_executions<br/>輸入: limit<br/>動作: 讀 executions 表"]:::tool
+        T5["get_resource_samples<br/>輸入: exec_id, window<br/>動作: 讀 resource_samples"]:::tool
+    end
+
+    REG --> T1
+    REG --> T2
+    REG --> T3
+    REG --> T4
+    REG --> T5
+
+    T1 --> CORE["core/sentinelbox<br/>(spawn child process)"]:::io
+    T2 --> DB[("SQLite WAL")]:::io
+    T3 --> DB
+    T4 --> DB
+    T5 --> DB

@@ -1,0 +1,26 @@
+flowchart LR
+    subgraph T["傳統沙盒 (Docker / chroot)"]
+        direction TB
+        A1["AI Agent 產生程式碼"] --> A2["Sandbox 執行"]
+        A2 --> A3{"安全違規?"}
+        A3 -- 是 --> A4["Kernel 回傳<br/>EPERM / Exit 137"]
+        A4 --> A5["AI 困惑：<br/>權限不足? 加 sudo?"]
+        A5 --> A6["盲目重試<br/>陷入死循環"]
+    end
+
+    subgraph S["SentinelBox (語義化沙盒)"]
+        direction TB
+        B1["AI Agent 產生程式碼"] --> B2["Sandbox 執行"]
+        B2 --> B3{"安全違規?"}
+        B3 -- 是 --> B4["Monitor 攔截 + 上下文擷取"]
+        B4 --> B5["MCP Server 語義翻譯"]
+        B5 --> B6["AI 收到：<br/>「strict 模式禁止外網<br/>建議改用 mock」"]
+        B6 --> B7["AI 跳出歧義<br/>正確修正路徑"]
+    end
+
+    T -. 缺乏上下文 .-> S
+
+    style T fill:#fdecea,stroke:#c0392b
+    style S fill:#e8f8f5,stroke:#16a085
+    style A6 fill:#f5b7b1
+    style B7 fill:#a3e4d7

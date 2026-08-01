@@ -1,0 +1,24 @@
+flowchart LR
+    classDef raw fill:#fadbd8,stroke:#922b21
+    classDef map fill:#fcf3cf,stroke:#9a7d0a
+    classDef sem fill:#d4efdf,stroke:#1e8449
+
+    subgraph RAW["raw kernel signal"]
+        R1["syscall nr=41"]:::raw
+        R2["errno=-13 (EACCES)"]:::raw
+        R3["args[0]=2 (AF_INET)<br/>args[1]=1 (SOCK_STREAM)"]:::raw
+    end
+
+    R1 --> X{"feedback.rs<br/>FeedbackMap"}
+    R2 --> X
+    R3 --> X
+    X --> J[("mappings/<br/>syscall_feedback.json")]:::map
+
+    J --> S1["semantic_zh:<br/>「偵測到試圖建立網路連線 (socket)<br/>當前 strict 模式禁止外部存取」"]:::sem
+    J --> S2["semantic_en:<br/>「Network socket creation blocked<br/>by strict profile.」"]:::sem
+    J --> S3["remediation:<br/>「改用本地 mock 資料<br/>或切換到 web profile」"]:::sem
+
+    S1 --> MCP[("MCP Server<br/>translate_violation")]
+    S2 --> MCP
+    S3 --> MCP
+    MCP --> AI[["LLM Agent<br/>(具備上下文的修正)"]]

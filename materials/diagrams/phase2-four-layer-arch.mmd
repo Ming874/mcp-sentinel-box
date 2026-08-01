@@ -1,0 +1,50 @@
+flowchart TB
+    classDef plane fill:#ffffff,stroke:#34495e,stroke-width:2px
+    classDef comp fill:#fef9e7,stroke:#b7950b
+    classDef ai fill:#d4efdf,stroke:#1e8449
+    classDef hw fill:#fadbd8,stroke:#922b21
+
+    AI["AI Agent (LLM)"]:::ai
+
+    subgraph L4["第四層：User Plane / dashboard/ (React + Socket.io)"]
+        UI["即時資源圖表"]:::comp
+        TL["違規時間軸"]:::comp
+        KS["Kill Switch"]:::comp
+    end
+    class L4 plane
+
+    subgraph L3["第三層：Interpretation Plane / mcp-server/ (TypeScript)"]
+        T1["translate_violation tool"]:::comp
+        T2["suggest_repair tool"]:::comp
+        T3["JSON-RPC over stdio"]:::comp
+    end
+    class L3 plane
+
+    subgraph L2["第二層：Security Plane / monitor/ (Rust)"]
+        EL["Event Loop (poll)"]:::comp
+        FB["feedback.rs<br/>JSON 對照表"]:::comp
+        PG["policy.rs<br/>Profile 引擎"]:::comp
+        TM["telemetry.rs<br/>10Hz cgroup 取樣"]:::comp
+    end
+    class L2 plane
+
+    subgraph L1["第一層：Data Plane / core/ (C)"]
+        NS["namespace.c<br/>CLONE_NEW*"]:::comp
+        OF["overlayfs.c<br/>tmpfs + pivot_root"]:::comp
+        CG["cgroup.c<br/>v2 限額"]:::comp
+        SC["seccomp.c<br/>BPF filter 安裝"]:::comp
+    end
+    class L1 plane
+
+    KER[("Linux Kernel<br/>Namespaces / Cgroup v2 / Seccomp")]:::hw
+    DB[("SQLite WAL Audit DB")]:::comp
+
+    AI <-->|MCP JSON-RPC| L3
+    L3 -->|fork+exec| L1
+    L1 -. SCM_RIGHTS<br/>傳遞 notify_fd .-> L2
+    L1 ===|syscall| KER
+    KER -. seccomp_unotify .-> L2
+    L2 --> DB
+    L3 -->|讀違規| DB
+    DB --> L4
+    L4 -->|SIGKILL 指令| L3
