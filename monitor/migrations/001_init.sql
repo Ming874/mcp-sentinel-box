@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS syscall_events (
     errno        INTEGER,                       -- 原始 errno 數字（對照見 docs/db-schema.md）
     signal_name  TEXT,                          -- errno/signal 符號名：EPERM / EACCES / SIGKILL / OK
     path         TEXT,                          -- 受影響路徑（目前保留欄位，尚未填值）
-    semantic_msg TEXT                           -- Rust live-loop 英文訊息；UI 翻譯由 MCP 負責
+    semantic_msg TEXT,                          -- Rust live-loop 英文訊息；UI 翻譯由 MCP 負責
+    remediation  TEXT                           -- 修正建議（mappings/syscall_feedback.json 的 hint）
 );
 
 CREATE TABLE IF NOT EXISTS resource_samples (

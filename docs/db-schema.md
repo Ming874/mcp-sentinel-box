@@ -57,6 +57,7 @@ SELECT COUNT(*) FROM executions WHERE end_ts IS NULL;
 | `signal_name` | TEXT | errno/signal 符號名：`EPERM` / `EACCES` / `SIGKILL` / `OK` |
 | `path` | TEXT | 受影響路徑；**目前一律 `NULL`**（取 path 需讀 `/proc/<pid>/mem`，後續再補） |
 | `semantic_msg` | TEXT | Rust 的 best-effort 英文訊息（UI 翻譯請走 MCP，勿直接信任此欄措辭） |
+| `remediation` | TEXT | 修正建議（`mappings/syscall_feedback.json` 的 `hint`）；舊資料庫開啟時自動補上此欄 |
 
 **`action` 語義：**
 - `ALLOW` — 放行，syscall 正常執行（通常不需顯示給使用者）

@@ -50,6 +50,15 @@ impl AuditDb {
         // 套用 schema（IF NOT EXISTS 故 idempotent）
         conn.execute_batch(SCHEMA_SQL).context("套用 schema 失敗")?;
 
+        // 舊資料庫的 syscall_events 沒有 remediation 欄（IF NOT EXISTS 不會補欄位），在此補上
+        let has_remediation = conn
+            .prepare("SELECT 1 FROM pragma_table_info('syscall_events') WHERE name = 'remediation'")?
+            .exists([])?;
+        if !has_remediation {
+            conn.execute_batch("ALTER TABLE syscall_events ADD COLUMN remediation TEXT")
+                .context("補 remediation 欄位失敗")?;
+        }
+
         Ok(Self { conn })
     }
 
@@ -119,5 +128,43 @@ impl AuditDb {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db(name: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("sentinelbox-{name}-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        p
+    }
+
+    fn insert_event(db: &mut AuditDb) -> Result<()> {
+        let exec_id = db.record_execution_start("strict", Some(1), Some("/bin/sh"))?;
+        db.record_syscall_event(exec_id, 1, 41, "socket", "NOTIFY", 1, "EPERM", None, "msg", "hint")
+    }
+
+    #[test]
+    fn syscall_event_insert_works_on_fresh_db() -> Result<()> {
+        let path = temp_db("fresh");
+        insert_event(&mut AuditDb::open(&path)?)?;
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn old_db_without_remediation_is_upgraded() -> Result<()> {
+        let path = temp_db("old");
+        // 001 原本的 syscall_events（沒有 remediation 欄）
+        Connection::open(&path)?.execute_batch(
+            "CREATE TABLE syscall_events (id INTEGER PRIMARY KEY AUTOINCREMENT, exec_id INTEGER NOT NULL,
+               ts INTEGER NOT NULL, pid INTEGER, syscall_nr INTEGER, syscall_name TEXT, action TEXT,
+               errno INTEGER, signal_name TEXT, path TEXT, semantic_msg TEXT);",
+        )?;
+        insert_event(&mut AuditDb::open(&path)?)?;
+        std::fs::remove_file(&path).ok();
+        Ok(())
     }
 }

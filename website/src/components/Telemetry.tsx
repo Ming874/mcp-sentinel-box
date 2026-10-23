@@ -16,6 +16,7 @@ const TABLES = [
       ['errno', ''],
       ['signal_name', 'EPERM | SIGKILL'],
       ['semantic_msg', ''],
+      ['remediation', 'hint'],
     ],
   },
   {
