@@ -1,0 +1,187 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Design tokens. Every colour in the UI and in the SVG diagrams resolves to one of these,
+   so both themes stay consistent. */
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f4f4f2;
+  --surface-3: #ecebe8;
+  --line: rgb(17 17 19 / 0.09);
+  --line-strong: rgb(17 17 19 / 0.17);
+  --fg: #111113;
+  --fg-2: #3f3f46;
+  --muted: #696973;
+  --brand: #ea6c0c;
+  --brand-ink: #b84d00;
+  --brand-soft: rgb(246 130 31 / 0.1);
+  --brand-line: rgb(234 108 12 / 0.4);
+  --allow: #15803d;
+  --allow-soft: rgb(21 128 61 / 0.1);
+  --errno: #0369a1;
+  --errno-soft: rgb(3 105 161 / 0.1);
+  --notify: #b45309;
+  --notify-soft: rgb(180 83 9 / 0.1);
+  --kill: #b91c1c;
+  --kill-soft: rgb(185 28 28 / 0.09);
+  --kernel: #6d28d9;
+  --kernel-soft: rgb(109 40 217 / 0.07);
+  --shadow: 0 1px 2px rgb(17 17 19 / 0.05), 0 8px 24px rgb(17 17 19 / 0.06);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #0b0b0d;
+  --surface: #121215;
+  --surface-2: #17171b;
+  --surface-3: #1e1e23;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.15);
+  --fg: #f4f4f5;
+  --fg-2: #d4d4d8;
+  --muted: #a1a1aa;
+  --brand: #f6821f;
+  --brand-ink: #fb923c;
+  --brand-soft: rgb(246 130 31 / 0.12);
+  --brand-line: rgb(246 130 31 / 0.45);
+  --allow: #4ade80;
+  --allow-soft: rgb(74 222 128 / 0.1);
+  --errno: #38bdf8;
+  --errno-soft: rgb(56 189 248 / 0.1);
+  --notify: #fbbf24;
+  --notify-soft: rgb(251 191 36 / 0.1);
+  --kill: #f87171;
+  --kill-soft: rgb(248 113 113 / 0.1);
+  --kernel: #a78bfa;
+  --kernel-soft: rgb(167 139 250 / 0.07);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.35);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-allow: var(--allow);
+  --color-errno: var(--errno);
+  --color-notify: var(--notify);
+  --color-kill: var(--kill);
+  --color-kernel: var(--kernel);
+  --font-sans: 'Inter Variable', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(246 130 31 / 0.3);
+}
+
+/* Grid items default to min-width: auto, which lets long code lines widen the page on phones. */
+.grid > * {
+  min-width: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 0%, black 30%, transparent 75%);
+}
+
+/* Terminal and code blocks stay dark in both themes. */
+.term {
+  --t-bg: #0e0e11;
+  --t-line: rgb(255 255 255 / 0.08);
+  --t-fg: #e4e4e7;
+  --t-muted: #8b8b94;
+  background: var(--t-bg);
+  color: var(--t-fg);
+  border: 1px solid var(--t-line);
+}
+
+.caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: #f6821f;
+  animation: blink 1.05s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Flow animation on highlighted diagram edges. */
+.edge-flow {
+  stroke-dasharray: 6 6;
+  animation: dash 0.9s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.reveal {
+  animation: reveal 0.5s ease-out both;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- 現代感的 Cloudflare 橘色漸層 (45度角)，增加細微的科技光澤 -->
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F6821F" />
+      <stop offset="100%" stop-color="#D95C00" />
+    </linearGradient>
+  </defs>
+
+  <!-- 絕對正圓的主體底色 -->
+  <circle cx="256" cy="256" r="256" fill="url(#bg-gradient)" />
+
+  <!-- 
+    將圖形整體向右微調 (translate X=10)，
+    抵銷 ">" 符號左側的視覺重量，達到完美的「光學置中」 
+  -->
+  <g transform="translate(10, 0)">
+    <!-- 終端機符號 ">"：使用極簡、厚實的圓角線條 -->
+    <polyline 
+      points="140,170 240,256 140,342" 
+      fill="none" 
+      stroke="#FFFFFF" 
+      stroke-width="52" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+    />
+    
+    <!-- 終端機游標 "_"：代表持續的輸入與程式運算 -->
+    <line 
+      x1="285" y1="342" 
+      x2="385" y2="342" 
+      fill="none" 
+      stroke="#FFFFFF" 
+      stroke-width="52" 
+      stroke-linecap="round" 
+    />
+  </g>
+</svg>

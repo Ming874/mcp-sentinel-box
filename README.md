@@ -3,7 +3,7 @@
 [![Project Status: Research/Prototype](https://img.shields.io/badge/Status-Prototype-blue.svg)](https://github.com/your-repo/sentinelbox)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-[Demo Video](https://www.youtube.com/watch?v=ZsGC6J98llk)
+[Website](https://sentinelbox.mingchen.dev) · [Demo Video](https://www.youtube.com/watch?v=ZsGC6J98llk)
 
 ## 1. Introduction & Motivation
 In the era of Generative AI, AI Agents frequently generate and execute code to solve complex tasks. However, executing unvetted, LLM-generated code poses significant security risks, ranging from accidental data deletion to intentional system exploitation.
@@ -22,6 +22,7 @@ SentinelBox adopts a decoupled, multi-layered architecture to ensure stability, 
 *   **`server/`**: Backend Data Bridge (Express + Socket.io). Relays SQLite audit logs and telemetry to the frontend via WebSockets.
 *   **`dashboard/`**: Frontend Monitoring Dashboard (React + Vite). A modern, real-time UI visualizing CPU/Memory metrics and security events.
 *   **`docs/scripts/`**: Project documentation and auxiliary generation scripts.
+*   **`website/`**: Project website (React + Vite), deployed to [sentinelbox.mingchen.dev](https://sentinelbox.mingchen.dev). See [`website/README.md`](website/README.md).
 
 ---
 

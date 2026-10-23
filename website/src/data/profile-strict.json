@@ -1,0 +1,136 @@
+{
+  "name": "strict",
+  "description": "預設嚴格 profile：禁止網路、阻擋核心安全相關 syscall，所有違規均通報 monitor",
+  "default_action": "ALLOW",
+  "_note_network": "只攔『建立連線』類 syscall (socket/connect/bind/listen/accept)。刻意不攔 sendmsg/recvmsg/sendto/recvfrom：(1) 它們是已開啟 fd 上的資料傳輸，程式一定先經過 socket()+connect() 才能用，攔前者就已封死網路；(2) 更關鍵——sandbox child 安裝 seccomp 後是用 sendmsg(SCM_RIGHTS) 把 notify_fd 傳給 monitor，若 sendmsg 設 NOTIFY 會被自己的 filter 攔住、與 monitor 互鎖 (見 seccomp_unotify(2) 對 bootstrap syscall 的警告)。",
+  "syscall_rules": [
+    {
+      "name": "socket",
+      "action": "NOTIFY"
+    },
+    {
+      "name": "connect",
+      "action": "NOTIFY"
+    },
+    {
+      "name": "bind",
+      "action": "NOTIFY"
+    },
+    {
+      "name": "listen",
+      "action": "NOTIFY"
+    },
+    {
+      "name": "accept",
+      "action": "NOTIFY"
+    },
+    {
+      "name": "accept4",
+      "action": "NOTIFY"
+    },
+    {
+      "name": "ptrace",
+      "action": "KILL"
+    },
+    {
+      "name": "mount",
+      "action": "KILL"
+    },
+    {
+      "name": "umount2",
+      "action": "KILL"
+    },
+    {
+      "name": "pivot_root",
+      "action": "KILL"
+    },
+    {
+      "name": "chroot",
+      "action": "ERRNO",
+      "errno": 1
+    },
+    {
+      "name": "setns",
+      "action": "KILL"
+    },
+    {
+      "name": "unshare",
+      "action": "KILL"
+    },
+    {
+      "name": "reboot",
+      "action": "KILL"
+    },
+    {
+      "name": "kexec_load",
+      "action": "KILL"
+    },
+    {
+      "name": "init_module",
+      "action": "KILL"
+    },
+    {
+      "name": "finit_module",
+      "action": "KILL"
+    },
+    {
+      "name": "delete_module",
+      "action": "KILL"
+    },
+    {
+      "name": "create_module",
+      "action": "KILL"
+    },
+    {
+      "name": "swapon",
+      "action": "KILL"
+    },
+    {
+      "name": "swapoff",
+      "action": "KILL"
+    },
+    {
+      "name": "iopl",
+      "action": "KILL"
+    },
+    {
+      "name": "ioperm",
+      "action": "KILL"
+    },
+    {
+      "name": "bpf",
+      "action": "KILL"
+    },
+    {
+      "name": "perf_event_open",
+      "action": "KILL"
+    },
+    {
+      "name": "userfaultfd",
+      "action": "KILL"
+    },
+    {
+      "name": "mknod",
+      "action": "ERRNO",
+      "errno": 1
+    },
+    {
+      "name": "mknodat",
+      "action": "ERRNO",
+      "errno": 1
+    }
+  ],
+  "resources": {
+    "mem_limit_bytes": 134217728,
+    "cpu_max_quota": 50000,
+    "cpu_max_period": 100000,
+    "pids_max": 32
+  },
+  "network": {
+    "allow": false,
+    "allow_dns": false
+  },
+  "filesystem": {
+    "allow_write_overlay": true
+  }
+}

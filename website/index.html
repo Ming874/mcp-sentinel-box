@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SentinelBox — Kernel-level sandbox with semantic feedback for AI agents</title>
+    <meta name="description" content="SentinelBox runs AI-generated code inside Linux namespaces, OverlayFS, seccomp USER_NOTIF and cgroup v2 — and turns every blocked syscall into feedback an agent can act on, exposed over the Model Context Protocol." />
+    <meta name="author" content="Ming Chen" />
+    <link rel="canonical" href="https://sentinelbox.mingchen.dev/" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0B0B0D" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FAFAF9" media="(prefers-color-scheme: light)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://sentinelbox.mingchen.dev/" />
+    <meta property="og:site_name" content="SentinelBox" />
+    <meta property="og:title" content="SentinelBox — Kernel-level sandbox for AI agents" />
+    <meta property="og:description" content="Namespaces, OverlayFS, seccomp USER_NOTIF and cgroup v2 — with semantic feedback for every blocked syscall, over MCP." />
+    <meta property="og:image" content="https://sentinelbox.mingchen.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SentinelBox — Kernel-level sandbox for AI agents" />
+    <meta name="twitter:description" content="Namespaces, OverlayFS, seccomp USER_NOTIF and cgroup v2 — with semantic feedback for every blocked syscall, over MCP." />
+    <meta name="twitter:image" content="https://sentinelbox.mingchen.dev/og.png" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "SentinelBox",
+        "description": "A rootless Linux sandbox for AI agents that translates kernel-level denials into semantic feedback via the Model Context Protocol.",
+        "url": "https://sentinelbox.mingchen.dev/",
+        "codeRepository": "https://github.com/Ming874/mcp-sentinel-box",
+        "programmingLanguage": ["C", "Rust", "TypeScript"],
+        "runtimePlatform": "Linux 5.15+",
+        "license": "https://opensource.org/licenses/MIT",
+        "author": { "@type": "Person", "name": "Ming Chen", "url": "https://mingchen.dev" }
+      }
+    </script>
+
+    <script>
+      // Apply theme and language before first paint to avoid a flash.
+      ;(function () {
+        var d = document.documentElement
+        var theme = null
+        var lang = null
+        try {
+          theme = localStorage.getItem('sb-theme')
+          lang = localStorage.getItem('sb-lang')
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        }
+        if (lang !== 'zh' && lang !== 'en') {
+          lang = /^zh/i.test(navigator.language || '') ? 'zh' : 'en'
+        }
+        d.setAttribute('data-theme', theme)
+        d.setAttribute('lang', lang === 'zh' ? 'zh-Hant-TW' : 'en')
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p style="font-family: system-ui, sans-serif; padding: 24px; max-width: 640px">
+        SentinelBox is a rootless Linux sandbox for AI agents: Linux namespaces, OverlayFS, seccomp
+        USER_NOTIF and cgroup v2, with semantic feedback for blocked syscalls over the Model Context
+        Protocol. Source code: <a href="https://github.com/Ming874/mcp-sentinel-box">github.com/Ming874/mcp-sentinel-box</a>.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
