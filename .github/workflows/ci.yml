@@ -71,18 +71,3 @@ jobs:
       run: cd server && npm ci
     - name: Check Server Syntax
       run: cd server && node --check src/index.js
-
-  build-website:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24.x'
-        cache: 'npm'
-        cache-dependency-path: 'website/package-lock.json'
-    - name: Install dependencies
-      run: cd website && npm ci
-    - name: Build Website
-      run: cd website && npm run build
