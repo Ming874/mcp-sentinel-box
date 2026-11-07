@@ -22,7 +22,8 @@ SentinelBox adopts a decoupled, multi-layered architecture to ensure stability, 
 *   **`server/`**: Backend Data Bridge (Express + Socket.io). Relays SQLite audit logs and telemetry to the frontend via WebSockets.
 *   **`dashboard/`**: Frontend Monitoring Dashboard (React + Vite). A modern, real-time UI visualizing CPU/Memory metrics and security events.
 *   **`docs/scripts/`**: Project documentation and auxiliary generation scripts.
-*   **`website/`**: Project website (React + Vite), deployed to [sentinelbox.mingchen.dev](https://sentinelbox.mingchen.dev). See [`website/README.md`](website/README.md).
+
+The project website, [sentinelbox.mingchen.dev](https://sentinelbox.mingchen.dev), is no longer kept in this repository: it is now part of the author's personal site ([mingchen.dev](https://mingchen.dev)). It reads `profiles/*.json` and `mappings/syscall_feedback.json` from this repository's `main` branch, so changes to the profiles or the feedback mapping show up on the site within about an hour.
 
 ---
 
